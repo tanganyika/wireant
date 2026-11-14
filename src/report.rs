@@ -915,6 +915,7 @@ pub fn build_comparison(ant: &Antenna, source: Option<&Path>, cmp: &Comparison) 
             GroundKind::Real => format!("real ground εr {}, σ {} mS/m", g.eps_r, g.sigma_ms),
         }),
         ("Wire material".into(), ant.material.label().into()),
+        ("Wire ends".into(), if ant.open_ends { "open, as NEC models them".into() } else { "flat caps (solid rod) for wiremom; NEC treats ends as open".into() }),
         ("SWR reference".into(), format!("{} Ω", ant.z0)),
         ("Wires".into(), format!("{} ({}: {}, {}: {})", ant.wires.len(), a.label, segs(a), b.label, segs(b))),
     ]);

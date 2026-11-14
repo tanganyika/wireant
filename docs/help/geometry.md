@@ -75,6 +75,11 @@ that ends on a plate connects to it, so a monopole can be fed against a plate.
 - **Ground**: **Free space**, **Perfect ground** or **Real ground**. See [Ground](ground.md).
 - **Wire material**: copper, aluminium or iron, as wire or pipe, or **No loss**. **User wire** and
   **User pipe** take your own resistivity and permeability.
+- **Wire ends** (wiremom only): **flat (solid rod)** gives each free wire end a flat cap that
+  carries charge, as the end of a solid rod does, so a thick element acts about a radius longer at
+  each end. **open (tube, as NEC)** leaves the ends open, as on a hollow tube and as NEC and MININEC
+  model every end. On thick elements at VHF and UHF the choice can move a Yagi's band edge by about
+  half a percent; use **open** to compare with NEC results.
 - **Rear range for F/B**: how wide the rear region is, in azimuth and in elevation, when looking
   for the strongest rear lobe.
 - **SWR reference (Ω)**: the feed line impedance used for SWR.
@@ -90,6 +95,11 @@ fastest, and longer ones in the middle of a wire:
 
 The NEC-2 engine always uses evenly spaced segments, because NEC-2 is inaccurate next to very
 short segments.
+
+MININEC and NEC-2 never get segments shorter than the wire's diameter: a wire whose own count
+would need shorter ones gets fewer. wiremom models the wire as a tube, which stays accurate down to
+segments of half a radius, so it keeps a file's own counts (EZNEC's 100 per element, say) on thick
+elements.
 
 ## Comment
 

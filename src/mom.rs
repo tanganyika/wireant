@@ -90,7 +90,20 @@ pub struct Mesh {
 /// Segment lengths along one wire, following the original solver (MECHANICS.md §2):
 /// seg > 0 -> FFSolver 0x405390, seg == 0 -> 0x405460, seg < 0 -> 0x405540.
 pub fn wire_segment_lengths(len: f64, lambda: f64, seg: i32, r: f64, sp: &Segmentation) -> Vec<f64> {
-    let r = r.abs();
+    wire_segment_lengths_min(len, lambda, seg, sp, 2.0 * r.abs())
+}
+
+/// MININEC and NEC-2's segmentation note.
+pub const SHORT_SEGMENTS_NOTE: &str = "segments are shorter than the wire diameter.";
+
+/// The shortest segment wiremom is given, as a multiple of the wire radius.  Its tube
+/// kernel stays accurate down to about half a radius, where MININEC and NEC-2's thin-wire
+/// kernels need a diameter.
+pub const WIREMOM_MIN_SEG_RADII: f64 = 0.5;
+
+/// [`wire_segment_lengths`] with `min_len` in place of the wire diameter as the shortest
+/// segment allowed.
+pub fn wire_segment_lengths_min(len: f64, lambda: f64, seg: i32, sp: &Segmentation, min_len: f64) -> Vec<f64> {
     let even = |n: i64| -> usize {
         let mut n = n.max(2);
         if n % 2 == 1 {
@@ -104,7 +117,7 @@ pub fn wire_segment_lengths(len: f64, lambda: f64, seg: i32, r: f64, sp: &Segmen
     // diameter; this steps back down instead, unless that would leave fewer than 2.
     let even_fit = |n: i64| -> usize {
         let mut n = even(n);
-        while n > 2 && len / (n as f64) < 2.0 * r * (1.0 - 1e-9) {
+        while n > 2 && len / (n as f64) < min_len * (1.0 - 1e-9) {
             n -= 2;
         }
         n
@@ -113,8 +126,8 @@ pub fn wire_segment_lengths(len: f64, lambda: f64, seg: i32, r: f64, sp: &Segmen
     // fixed count: even, >= 2, no segment shorter than the wire diameter, 2 when lambda/L > 1500
     if seg > 0 {
         let mut n = seg as i64;
-        if len / (n as f64) < 2.0 * r {
-            n = (len / (2.0 * r)) as i64;
+        if len / (n as f64) < min_len {
+            n = (len / min_len) as i64;
         }
         if lambda / len > 1500.0 {
             n = 2;
@@ -130,8 +143,8 @@ pub fn wire_segment_lengths(len: f64, lambda: f64, seg: i32, r: f64, sp: &Segmen
     // until they reach lambda/DM2, and an even number of segments in the middle.
     let mut dm1 = sp.dm1.max(1.0);
     let mut dm2 = sp.dm2.max(1.0);
-    if lambda / dm1 < 2.0 * r {
-        dm1 = (lambda / (2.0 * r)).floor().max(1.0);
+    if lambda / dm1 < min_len {
+        dm1 = (lambda / min_len).floor().max(1.0);
         dm2 = dm2.min(dm1);
     }
     if len < lambda / dm1 {
@@ -209,7 +222,7 @@ pub fn build_mesh(ant: &Antenna, lambda: f64) -> Result<Mesh, String> {
         let n = lens.len();
         wire_segs.push((start, n));
         if lens.iter().any(|l| *l < 2.0 * w.r.abs() * 0.999) {
-            warnings.push(format!("Wire {}: segments are shorter than the wire diameter.", wi + 1));
+            warnings.push(format!("Wire {}: {SHORT_SEGMENTS_NOTE}", wi + 1));
         }
         // interior nodes
         let mut acc = 0.0;

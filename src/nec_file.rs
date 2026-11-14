@@ -198,6 +198,9 @@ struct Extras {
     /// each wire's own segment setting (0 or less = automatic), as the GW cards hold
     /// only the count it gave
     wire_seg: Vec<i32>,
+    /// free wire ends open (tube) rather than flat caps (rod); wiremom only
+    #[serde(default)]
+    open_ends: bool,
     /// exact places of the sources and loads (NEC puts them at segment centres)
     source_pos: Vec<f64>,
     /// which sources are current sources (NEC-2 has voltage sources only)
@@ -679,6 +682,7 @@ pub fn parse(text: &str, file_name: &str) -> Result<Imported, String> {
         ant.user_mu = x.user_mu;
         ant.fb_az = x.fb_az;
         ant.fb_el = x.fb_el;
+        ant.open_ends = x.open_ends;
         ant.seg = x.seg;
         if x.wire_seg.len() == ant.wires.len() {
             for (w, s) in ant.wires.iter_mut().zip(&x.wire_seg) {
@@ -740,6 +744,7 @@ pub fn write(ant: &Antenna) -> String {
         fb_el: ant.fb_el,
         seg: ant.seg.clone(),
         wire_seg: ant.wires.iter().map(|w| w.seg).collect(),
+        open_ends: ant.open_ends,
         source_pos: ant.sources.iter().map(|s| s.pos).collect(),
         source_current: ant.sources.iter().map(|s| s.current).collect(),
         load_pos: ant.loads.iter().map(|l| l.pos).collect(),
@@ -989,6 +994,16 @@ GE 1\nGN 2 0 0 0 13 0.005\nLD 5 0 0 0 5.8E7\nLD 0 1 11 11 0 1E-6 0\nEX 0 1 11 0 
         assert!((r.ant.wires[0].p2[1] - 299.79 / 14.2 / 4.0 * 0.97).abs() < 1e-9);
         assert!((r.ant.wires[1].p1[0] - 5.03).abs() < 1e-6, "{:?}", r.ant.wires[1].p1);
         assert!(matches!(r.ant.loads[0].kind, LoadKind::Rlc { .. }));
+    }
+
+    #[test]
+    fn open_ends_are_kept() {
+        let mut a = Antenna::example(2);
+        a.open_ends = true;
+        let b = parse(&write(&a), "x.nec").unwrap().ant;
+        assert!(b.open_ends);
+        a.open_ends = false;
+        assert!(!parse(&write(&a), "x.nec").unwrap().ant.open_ends);
     }
 
     #[test]

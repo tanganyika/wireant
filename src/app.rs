@@ -2225,6 +2225,14 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
             ui.add(egui::DragValue::new(&mut ant.user_mu).speed(0.1).range(1.0..=100000.0));
             ui.end_row();
         }
+        ui.label("Wire ends");
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut ant.open_ends, false, "flat (solid rod)")
+                .on_hover_text("Each free wire end is a flat cap that carries charge, as on a solid rod: a thick element then acts a little longer (about a radius at each end). wiremom only.");
+            ui.radio_value(&mut ant.open_ends, true, "open (tube, as NEC)")
+                .on_hover_text("Free wire ends carry no charge, as on an open tube and as NEC and MININEC model every end. Choose this to compare with NEC results. wiremom only.");
+        });
+        ui.end_row();
         ui.label("Rear range for F/B");
         ui.horizontal(|ui| {
             ui.label("azimuth");

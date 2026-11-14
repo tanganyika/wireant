@@ -155,7 +155,9 @@ pub fn build(ant: &Antenna, lambda: f64, freq_mhz: f64) -> Result<(Model, Vec<us
         if ant.ground.kind == GroundKind::Perfect && (p1[2] < -1e-6 || p2[2] < -1e-6) {
             return Err(format!("Antenna or part of antenna is under ground. Increase height! (wire {})", wi + 1));
         }
-        let lens = mom::wire_segment_lengths(len, lambda, w.seg, w.r, &ant.seg);
+        // wiremom's tube kernel takes segments down to half a radius, so a file's own
+        // counts (EZNEC's 100 per element, say) are kept where MININEC would cut them
+        let lens = mom::wire_segment_lengths_min(len, lambda, w.seg, &ant.seg, mom::WIREMOM_MIN_SEG_RADII * w.r.abs());
         index[wi] = Some(wires.len());
         app_wire.push(wi);
         wires.push(wiremom::Wire {
@@ -183,6 +185,7 @@ pub fn build(ant: &Antenna, lambda: f64, freq_mhz: f64) -> Result<(Model, Vec<us
         GroundKind::Real => WGround::Real(RealGround { eps_r: ant.ground.eps_r, sigma: ant.ground.sigma_ms * 1e-3 }),
     };
     let mut m = Model::new(wires, ground);
+    m.end_caps = !ant.open_ends;
     m.surfaces = surfaces;
     if grounded {
         m.second_ground = ant.ground.second.to_wiremom();
@@ -318,7 +321,19 @@ pub fn calculate(ant: &Antenna, prog: &crate::progress::Progress) -> Result<Full
     let patterns = mom::patterns(ant, &mut res, &rad.unwrap(), prog)?;
     // segmentation warnings from this program's mesher (it refuses buried wires,
     // which only this engine models)
-    let mut warnings = mom::build_mesh(ant, ant.lambda()).map(|m| m.warnings).unwrap_or_default();
+    // (MININEC's diameter rule doesn't apply here: wiremom gets its own segmentation)
+    let mut warnings: Vec<String> =
+        mom::build_mesh(ant, ant.lambda()).map(|m| m.warnings).unwrap_or_default().into_iter().filter(|w| !w.ends_with(mom::SHORT_SEGMENTS_NOTE)).collect();
+    let lambda = ant.lambda();
+    for (wi, w) in ant.wires.iter().enumerate() {
+        let (len, r) = (w.length(), w.r.abs());
+        if len > 0.0 && r > 0.0 {
+            let lens = mom::wire_segment_lengths_min(len, lambda, w.seg, &ant.seg, mom::WIREMOM_MIN_SEG_RADII * r);
+            if lens.iter().any(|l| *l < mom::WIREMOM_MIN_SEG_RADII * r * 0.999) {
+                warnings.push(format!("Wire {}: segments are shorter than half the wire radius (the wire is too short for two longer ones).", wi + 1));
+            }
+        }
+    }
     warnings.extend(ws.warnings.iter().cloned());
     if uses_ground_stand_in(ant) {
         warnings.push(GROUND_CONNECTED_NOTE.to_string());

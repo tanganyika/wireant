@@ -494,6 +494,9 @@ pub struct Antenna {
     pub user_mu: f64,
     /// Solver choice (an app setting, not stored in .maa files).
     pub engine: Engine,
+    /// Wire ends are open, as on a hollow tube, rather than flat caps that carry charge
+    /// like the end of a solid rod (wiremom only: MININEC and NEC treat every end as open).
+    pub open_ends: bool,
 }
 
 pub fn pos_label(wire: usize, pos: f64) -> String {
@@ -560,6 +563,7 @@ impl Antenna {
             user_rho: 1.72e-8,
             user_mu: 1.0,
             engine: Engine::Wiremom,
+            open_ends: false,
         };
         let src = |w| Source { wire: w, pos: 0.5, phase_deg: 0.0, volts: 1.0, current: false };
         match i {
