@@ -276,10 +276,12 @@ impl App {
         }
         // test hook: WIREANT_ABOUT=1 starts with Help → About open
         app.about_open = std::env::var_os("WIREANT_ABOUT").is_some();
-        // test hook: WIREANT_EXPOSURE=level|x|y starts with Tools → RF exposure open on that plane
+        // test hook: WIREANT_EXPOSURE=3d|level|x|y starts with Tools → RF exposure open,
+        // in 3D or on that plane
         if let Ok(p) = std::env::var("WIREANT_EXPOSURE") {
             app.exposure.open = true;
             app.exposure.auto = true;
+            app.exposure.show_3d = !matches!(p.as_str(), "level" | "x" | "y");
             app.exposure.setup.plane = match p.as_str() {
                 "x" => crate::exposure::Plane::AlongX,
                 "y" => crate::exposure::Plane::AlongY,

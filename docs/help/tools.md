@@ -80,14 +80,27 @@ frequency.
 - **Standard**: ICNIRP 1998 general public (used in the EU and by Ofcom in the UK), ICNIRP 2020
   general public, or the FCC's general population limits. The limits at the frequency are shown;
   check them against your regulator's own figures.
+
+A point's share of the limit is the larger of (E / E limit)² and (H / H limit)², which compares
+power densities, so close to the antenna, where E and H are no longer in step, both count.
+
+**Show → 3D around the antenna** (the default) works the field out all round the antenna and
+draws the surfaces where it reaches the limit (red: inside it you are over the limit) and, if you
+tick them, 30 % and 10 % of it, with the antenna and the ground. Drag to turn it, right-drag to
+move it, use the wheel to zoom and double-click to reset, as on the 3D pattern; **Top**, **Front**
+and **Side** turn it to those views. The note above says how far from the antenna the limit
+reaches and, over ground, how low the zone comes compared with head height (2 m). The power, mode
+and standard change the surfaces straight away; if a surface grows past the space worked out, a
+note asks you to press **Calculate again**.
+
+**Show → Slice through it** colours one plane by the share of the limit:
+
 - **Plane**: a level plane at a height (2 m is about head height), or an upright plane through the
   middle of the antenna along x or y. **Reaching** sets how far it goes past the antenna.
 
-Press **Calculate fields**. Each point is coloured by its share of the limit: the larger of
-(E / E limit)² and (H / H limit)², which compares power densities, so close to the antenna, where
-E and H are no longer in step, both count. Red is over the limit. The note above the map gives the
-farthest distance from the antenna at which the limit is reached, and the strongest point at least
-0.5 m from the wires; hover over the map to read any point.
+Press **Calculate fields**. Red is over the limit. The note above the map gives the farthest
+distance from the antenna at which the limit is reached, and the strongest point at least 0.5 m
+from the wires; hover over the map to read any point.
 
 The fields come from the calculated currents, so they suit every engine. In free space and over
 perfect ground they agree with NEC-2's own near fields to within 0.1 dB. Over real ground the

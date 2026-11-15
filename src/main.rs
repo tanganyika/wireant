@@ -11,6 +11,7 @@ mod nec;
 mod nec_file;
 mod nearfield;
 mod exposure;
+mod exposure3d;
 mod wm;
 mod ez;
 mod file_name;

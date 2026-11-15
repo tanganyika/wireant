@@ -122,7 +122,9 @@ pub fn fields(cur: &Currents, ant: &Antenna, freq_mhz: f64, pts: &[V3]) -> Vec<(
     pts.par_iter().map(|p| field_at(&cur.filaments, omega, ground, *p)).collect()
 }
 
-/// Gauss–Legendre points and weights on [0, 1].
+/// Gauss–Legendre points and weights on [0, 1]: two points for pieces far from the
+/// field point, four for nearer ones.
+const GL2: [(f64, f64); 2] = [(0.211_324_865_405_187_1, 0.5), (0.788_675_134_594_812_9, 0.5)];
 const GL4: [(f64, f64); 4] = [
     (0.069_431_844_202_973_71, 0.173_927_422_568_726_93),
     (0.330_009_478_207_571_87, 0.326_072_577_431_273_07),
@@ -173,11 +175,12 @@ fn add_filament(f: &Filament, k: f64, jw: C, p: V3, wc: [C; 3], wq: C, e: &mut [
     let lambda = 2.0 * PI / k;
     let n = ((3.0 * l / d).ceil().max((20.0 * l / lambda).ceil()) as usize).clamp(1, 64);
     let dl = l / n as f64;
+    let rule: &[(f64, f64)] = if d > 8.0 * dl { &GL2 } else { &GL4 };
     let rho = -(f.ib - f.ia) / (jw * l); // line charge, C/m
     let cq = wq / (4.0 * PI * EPS0);
     let ca = MU0 / (4.0 * PI);
     for piece in 0..n {
-        for &(x, w) in &GL4 {
+        for &(x, w) in rule {
             let t = (piece as f64 + x) / n as f64;
             let s = add(f.a, scale(u, t * l));
             let i = f.ia + (f.ib - f.ia) * t;

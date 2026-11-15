@@ -1,6 +1,7 @@
 //! Tools → RF exposure: the near field on a plane around the antenna, against the
 //! reference levels of an exposure standard.
 
+use crate::exposure3d;
 use crate::mom::FullResult;
 use crate::model::{Antenna, GroundKind};
 use crate::nearfield::{self, Currents, Standard};
@@ -82,6 +83,17 @@ pub struct ExposureState {
     error: Option<String>,
     /// test hook: work out the map as soon as there is a calculation (screenshots)
     pub auto: bool,
+    /// the 3D view (true) or a slice
+    pub show_3d: bool,
+    pub vol: Option<exposure3d::Volume>,
+    vol_job: Option<Receiver<Result<exposure3d::Volume, String>>>,
+    /// counts the volumes worked out, so the surfaces know when to follow
+    vol_gen: u64,
+    pub view3: exposure3d::View3,
+    /// which of [`SHELLS`] to show
+    pub levels: [bool; 3],
+    /// the surfaces for (power, standard, levels, volume)
+    shells: Option<((u64, Standard, [bool; 3], u64), Vec<Vec<[[f64; 3]; 3]>>)>,
 }
 
 impl Default for ExposureState {
@@ -97,11 +109,23 @@ impl Default for ExposureState {
             job: None,
             error: None,
             auto: false,
+            show_3d: true,
+            vol: None,
+            vol_job: None,
+            vol_gen: 0,
+            view3: exposure3d::View3::default(),
+            levels: [true, false, true],
+            shells: None,
         }
     }
 }
 
 impl ExposureState {
+    /// The smallest share of the limit with a surface shown (1 when none is).
+    pub fn outer_level(&self) -> f64 {
+        SHELLS.iter().zip(self.levels).filter(|(_, on)| *on).map(|((l, _), _)| *l).fold(1.0, f64::min)
+    }
+
     /// Average power into the antenna: PEP × mode × time on air.
     pub fn avg_w(&self) -> f64 {
         self.pep_w * MODES[self.mode].1 * self.on_air
@@ -295,7 +319,7 @@ pub fn window(ctx: &egui::Context, st: &mut ExposureState, ant: &Antenna, calc: 
     if !st.open {
         return;
     }
-    // a finished calculation
+    // finished calculations
     if let Some(rx) = &st.job {
         match rx.try_recv() {
             Ok(r) => {
@@ -312,20 +336,30 @@ pub fn window(ctx: &egui::Context, st: &mut ExposureState, ant: &Antenna, calc: 
             Err(_) => st.job = None,
         }
     }
+    if let Some(rx) = &st.vol_job {
+        match rx.try_recv() {
+            Ok(r) => {
+                st.vol_job = None;
+                match r {
+                    Ok(v) => {
+                        st.vol = Some(v);
+                        st.vol_gen += 1;
+                        st.error = None;
+                    }
+                    Err(e) => st.error = Some(e),
+                }
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint_after(std::time::Duration::from_millis(50)),
+            Err(_) => st.vol_job = None,
+        }
+    }
     let mut open = st.open;
-    egui::Window::new("RF exposure").open(&mut open).default_width(760.0).default_height(720.0).show(ctx, |ui| {
+    egui::Window::new("RF exposure").open(&mut open).default_width(800.0).default_height(760.0).show(ctx, |ui| {
         let Some(c) = calc else {
             ui.label(RichText::new("Press Calculate first: the fields come from the calculated currents.").italics());
             return;
         };
         let f = c.result.freq_mhz;
-        if st.auto && st.map.is_none() {
-            st.auto = false;
-            match compute(&c.near, ant, f, &st.setup) {
-                Ok(m) => st.map = Some(m),
-                Err(e) => st.error = Some(e),
-            }
-        }
         ui.horizontal_wrapped(|ui| {
             ui.label("PEP into the antenna");
             ui.add(egui::DragValue::new(&mut st.pep_w).speed(1.0).range(0.0..=100_000.0).suffix(" W"));
@@ -354,70 +388,200 @@ pub fn window(ctx: &egui::Context, st: &mut ExposureState, ant: &Antenna, calc: 
                 None => ui.label(RichText::new(format!("{} doesn't cover {f:.3} MHz", st.standard.label())).color(Color32::from_rgb(190, 60, 30))),
             };
         });
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Plane");
-            for p in [Plane::Horizontal, Plane::AlongX, Plane::AlongY] {
-                ui.selectable_value(&mut st.setup.plane, p, p.label());
-            }
-            if st.setup.plane == Plane::Horizontal {
-                ui.label(if ant.ground.kind == GroundKind::Free { "z" } else { "height" });
-                ui.add(egui::DragValue::new(&mut st.setup.height).speed(0.1).range(-1000.0..=1000.0).suffix(" m"));
-            }
-            ui.label("reaching");
-            ui.add(egui::DragValue::new(&mut st.setup.margin).speed(0.5).range(0.5..=500.0).suffix(" m"))
-                .on_hover_text("How far the plane reaches past the antenna on every side.");
-            let busy = st.job.is_some();
-            if ui.add_enabled(!busy, egui::Button::new(if busy { "Working…" } else { "▶ Calculate fields" })).clicked() {
-                let (tx, rx) = channel();
-                let (cur, a, setup) = (c.near.clone(), ant.clone(), st.setup.clone());
-                std::thread::spawn(move || {
-                    let _ = tx.send(compute(&cur, &a, f, &setup));
-                });
-                st.job = Some(rx);
-            }
+        ui.horizontal(|ui| {
+            ui.label("Show");
+            ui.selectable_value(&mut st.show_3d, true, "3D around the antenna");
+            ui.selectable_value(&mut st.show_3d, false, "Slice through it");
         });
+        ui.separator();
         if let Some(e) = &st.error {
             ui.colored_label(Color32::from_rgb(190, 60, 30), e);
-        }
-        let Some(map) = &st.map else {
-            ui.add_space(20.0);
-            ui.label(RichText::new("Choose a plane and press Calculate fields.").italics().color(Color32::GRAY));
-            return;
-        };
-        let stale = (map.freq_mhz - f).abs() > 1e-9 || map.setup != st.setup;
-        if stale {
-            ui.colored_label(Color32::from_rgb(170, 110, 0), "The settings or the calculation have changed since: press Calculate fields to update the map.");
-        }
-        let avg = st.avg_w();
-        let Some(sum) = summarise(map, avg, st.standard) else {
-            ui.label(format!("{} has no limits at {:.3} MHz.", st.standard.label(), map.freq_mhz));
-            return;
-        };
-        let (e1, h1) = map.eh[sum.at];
-        let s = avg.sqrt();
-        let verdict = match sum.over_to {
-            Some(d) => RichText::new(format!("Over the limit on this plane: up to {d:.1} m from the antenna."))
-            .color(Color32::from_rgb(190, 30, 30))
-            .strong(),
-            None => RichText::new(format!("Within the limit everywhere on this plane: at most {} of it.", pct(sum.max_ratio))).color(Color32::from_rgb(30, 120, 40)).strong(),
-        };
-        ui.label(verdict);
-        if map.dist[sum.at] >= TOUCH_M {
-            ui.label(format!(
-                "Strongest point {TOUCH_M} m or more from the wires: {} of the limit (E {:.1} V/m, H {:.3} A/m), {:.1} m from the nearest wire.",
-                pct(sum.max_ratio),
-                e1 * s,
-                h1 * s,
-                map.dist[sum.at]
-            ));
         }
         if c.near.plates_left_out {
             ui.colored_label(Color32::from_rgb(170, 110, 0), "The plates' currents aren't included in these fields.");
         }
-        draw_map(ui, map, avg, st.standard, sum.limits);
-        ui.label(RichText::new(method_note(ant.ground.kind)).small().color(Color32::GRAY));
+        if st.show_3d {
+            volume_ui(ui, st, c, ant, f);
+        } else {
+            slice_ui(ui, st, c, ant, f);
+        }
     });
     st.open = open;
+}
+
+/// Starts working out the 3D grid in the background, reaching as far as the limit
+/// zone could at the current power.
+fn start_volume(st: &mut ExposureState, c: &FullResult, ant: &Antenna, f: f64) {
+    let Some(lim) = st.standard.limits(f) else { return };
+    let level = st.outer_level();
+    let avg = st.avg_w();
+    let margin = exposure3d::auto_margin(c.result.ga_dbi, avg, lim, level);
+    let (tx, rx) = channel();
+    let (cur, a) = (c.near.clone(), ant.clone());
+    if st.auto {
+        st.auto = false;
+        let _ = tx.send(exposure3d::compute(&cur, &a, f, margin, avg, lim, level));
+    } else {
+        std::thread::spawn(move || {
+            let _ = tx.send(exposure3d::compute(&cur, &a, f, margin, avg, lim, level));
+        });
+    }
+    st.vol_job = Some(rx);
+}
+
+fn volume_ui(ui: &mut egui::Ui, st: &mut ExposureState, c: &FullResult, ant: &Antenna, f: f64) {
+    let Some(lim) = st.standard.limits(f) else { return };
+    // the first time round, work it out straight away
+    if st.vol.is_none() && st.vol_job.is_none() && st.error.is_none() {
+        start_volume(st, c, ant, f);
+    }
+    let busy = st.vol_job.is_some();
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Surfaces at");
+        let names = ["the limit (100 %)", "30 %", "10 % of it"];
+        for (i, n) in names.iter().enumerate() {
+            ui.checkbox(&mut st.levels[i], *n);
+        }
+        if ui.button("Top").clicked() {
+            st.view3.yaw = 0.0;
+            st.view3.pitch = 1.55;
+        }
+        if ui.button("Front").clicked() {
+            st.view3.yaw = 0.0;
+            st.view3.pitch = 0.0;
+        }
+        if ui.button("Side").clicked() {
+            st.view3.yaw = -std::f32::consts::FRAC_PI_2;
+            st.view3.pitch = 0.0;
+        }
+        if ui.add_enabled(!busy, egui::Button::new(if busy { "Working…" } else { "▶ Calculate again" })).on_hover_text("Work the field out again, reaching as far as the limit could at the current power.").clicked() {
+            start_volume(st, c, ant, f);
+        }
+    });
+    let Some(vol) = &st.vol else {
+        ui.add_space(20.0);
+        ui.label(RichText::new("Working out the field around the antenna…").italics().color(Color32::GRAY));
+        return;
+    };
+    if (vol.freq_mhz - f).abs() > 1e-9 {
+        ui.colored_label(Color32::from_rgb(170, 110, 0), "The calculation has changed since: press Calculate again to update.");
+    }
+    let avg = st.avg_w();
+    if let Some(z) = exposure3d::zone(vol, avg, st.standard) {
+        match z.reach {
+            Some(d) => {
+                ui.label(RichText::new(format!("Over the limit inside the red surface: up to {d:.1} m from the antenna.")).color(Color32::from_rgb(190, 30, 30)).strong());
+                if let (true, Some((z0, z1))) = (vol.ground, z.z_range) {
+                    let txt = if z0 <= 0.05 {
+                        "It reaches down to the ground.".to_string()
+                    } else if z0 < HEAD_M {
+                        format!("It comes down to {z0:.1} m above the ground, below head height ({HEAD_M} m).")
+                    } else {
+                        format!("It stays between {z0:.1} m and {z1:.1} m above the ground, above head height ({HEAD_M} m).")
+                    };
+                    ui.label(txt);
+                }
+            }
+            None => {
+                ui.label(RichText::new(format!("Within the limit everywhere in the {:.0} m round the antenna.", vol.margin)).color(Color32::from_rgb(30, 120, 40)).strong());
+            }
+        }
+        if z.clipped {
+            ui.colored_label(Color32::from_rgb(170, 110, 0), "The limit is reached at the edge of the space worked out, so the zone may reach further: press Calculate again.");
+        } else if exposure3d::clipped(vol, avg, lim, st.outer_level()) {
+            ui.colored_label(Color32::from_rgb(170, 110, 0), "The outer surface runs past the space worked out and is cut off: press Calculate again to fit it.");
+        }
+    }
+    // the shells, worked out again only when the power, standard or levels change
+    let key = (avg.to_bits(), st.standard, st.levels, st.vol_gen);
+    if st.shells.as_ref().map(|s| s.0) != Some(key) {
+        let s: Vec<Vec<[[f64; 3]; 3]>> = SHELLS.iter().zip(st.levels).map(|((lv, _), on)| if on { exposure3d::surface(vol, avg, lim, *lv) } else { vec![] }).collect();
+        st.shells = Some((key, s));
+    }
+    let shells: Vec<exposure3d::Shell> = st.shells.as_ref().unwrap().1.iter().zip(SHELLS).map(|(t, (_, c))| exposure3d::Shell { tris: t, colour: c }).collect();
+    let avail = ui.available_size();
+    let size = Vec2::new(avail.x, (avail.y - 44.0).max(360.0));
+    exposure3d::draw(ui, size, vol, &shells, &mut st.view3);
+    ui.horizontal_wrapped(|ui| {
+        for (i, ((_, c), n)) in SHELLS.iter().zip(["over the limit", "30 % of it", "10 % of it"]).enumerate() {
+            if st.levels[i] {
+                let (r, p) = ui.allocate_painter(Vec2::new(14.0, 10.0), Sense::hover());
+                p.rect_filled(r.rect, 2.0, Color32::from_rgb(c[0], c[1], c[2]));
+                ui.label(RichText::new(n).small());
+            }
+        }
+        ui.label(RichText::new(method_note(ant.ground.kind)).small().color(Color32::GRAY));
+    });
+}
+
+/// Head height, for saying whether the zone comes down to where people are (m).
+pub const HEAD_M: f64 = 2.0;
+
+/// The 3D view's surfaces: (share of the limit, colour with alpha), outermost last.
+pub const SHELLS: [(f64, [u8; 4]); 3] = [(1.0, [215, 40, 40, 170]), (0.3, [240, 160, 40, 90]), (0.1, [120, 190, 100, 55])];
+
+fn slice_ui(ui: &mut egui::Ui, st: &mut ExposureState, c: &FullResult, ant: &Antenna, f: f64) {
+    if st.auto && st.map.is_none() {
+        st.auto = false;
+        match compute(&c.near, ant, f, &st.setup) {
+            Ok(m) => st.map = Some(m),
+            Err(e) => st.error = Some(e),
+        }
+    }
+    ui.horizontal_wrapped(|ui| {
+        ui.label("Plane");
+        for p in [Plane::Horizontal, Plane::AlongX, Plane::AlongY] {
+            ui.selectable_value(&mut st.setup.plane, p, p.label());
+        }
+        if st.setup.plane == Plane::Horizontal {
+            ui.label(if ant.ground.kind == GroundKind::Free { "z" } else { "height" });
+            ui.add(egui::DragValue::new(&mut st.setup.height).speed(0.1).range(-1000.0..=1000.0).suffix(" m"));
+        }
+        ui.label("reaching");
+        ui.add(egui::DragValue::new(&mut st.setup.margin).speed(0.5).range(0.5..=500.0).suffix(" m"))
+            .on_hover_text("How far the plane reaches past the antenna on every side.");
+        let busy = st.job.is_some();
+        if ui.add_enabled(!busy, egui::Button::new(if busy { "Working…" } else { "▶ Calculate fields" })).clicked() {
+            let (tx, rx) = channel();
+            let (cur, a, setup) = (c.near.clone(), ant.clone(), st.setup.clone());
+            std::thread::spawn(move || {
+                let _ = tx.send(compute(&cur, &a, f, &setup));
+            });
+            st.job = Some(rx);
+        }
+    });
+    let Some(map) = &st.map else {
+        ui.add_space(20.0);
+        ui.label(RichText::new("Choose a plane and press Calculate fields.").italics().color(Color32::GRAY));
+        return;
+    };
+    let stale = (map.freq_mhz - f).abs() > 1e-9 || map.setup != st.setup;
+    if stale {
+        ui.colored_label(Color32::from_rgb(170, 110, 0), "The settings or the calculation have changed since: press Calculate fields to update the map.");
+    }
+    let avg = st.avg_w();
+    let Some(sum) = summarise(map, avg, st.standard) else {
+        ui.label(format!("{} has no limits at {:.3} MHz.", st.standard.label(), map.freq_mhz));
+        return;
+    };
+    let (e1, h1) = map.eh[sum.at];
+    let s = avg.sqrt();
+    let verdict = match sum.over_to {
+        Some(d) => RichText::new(format!("Over the limit on this plane: up to {d:.1} m from the antenna.")).color(Color32::from_rgb(190, 30, 30)).strong(),
+        None => RichText::new(format!("Within the limit everywhere on this plane: at most {} of it.", pct(sum.max_ratio))).color(Color32::from_rgb(30, 120, 40)).strong(),
+    };
+    ui.label(verdict);
+    if map.dist[sum.at] >= TOUCH_M {
+        ui.label(format!(
+            "Strongest point {TOUCH_M} m or more from the wires: {} of the limit (E {:.1} V/m, H {:.3} A/m), {:.1} m from the nearest wire.",
+            pct(sum.max_ratio),
+            e1 * s,
+            h1 * s,
+            map.dist[sum.at]
+        ));
+    }
+    draw_map(ui, map, avg, st.standard, sum.limits);
+    ui.label(RichText::new(method_note(ant.ground.kind)).small().color(Color32::GRAY));
 }
 
 fn draw_map(ui: &mut egui::Ui, map: &Map, avg_w: f64, std: Standard, lim: (f64, f64)) {
