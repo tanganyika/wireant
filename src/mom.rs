@@ -814,6 +814,76 @@ pub struct Patterns {
     pub grid_step: f64,
 }
 
+impl Patterns {
+    /// −3 dB beamwidth of the main lobe in the azimuth cut, degrees (None when the
+    /// pattern never falls 3 dB below its peak, e.g. a vertical's round azimuth pattern).
+    pub fn az_beamwidth(&self) -> Option<f64> {
+        let pts: Vec<(f64, f64)> = self.az_cut.iter().filter(|(a, _)| *a < 360.0).map(|(a, g)| (*a, g.total)).collect();
+        beamwidth(&pts, true)
+    }
+
+    /// −3 dB beamwidth of the main lobe in the elevation cut, degrees. Over ground the cut
+    /// stops at the horizons: a lobe still within 3 dB there (a vertical over perfect
+    /// ground) is measured from the horizon.
+    pub fn el_beamwidth(&self) -> Option<f64> {
+        let pts: Vec<(f64, f64)> = self
+            .el_cut
+            .iter()
+            .filter(|(t, _)| if self.free_space { *t < 360.0 } else { *t <= 180.0 })
+            .map(|(t, g)| (*t, g.total))
+            .collect();
+        beamwidth(&pts, self.free_space)
+    }
+}
+
+/// A beamwidth for display: "52.3°", or "—" when there is none.
+pub fn bw_text(w: Option<f64>) -> String {
+    w.map_or("—".into(), |w| format!("{w:.1}°"))
+}
+
+/// Width between the half-power points either side of the largest value of `pts`
+/// (evenly spaced (angle, linear gain), in order), interpolated in dB between samples.
+/// `circular`: the cut goes all the way round, so the last point is next to the first.
+pub fn beamwidth(pts: &[(f64, f64)], circular: bool) -> Option<f64> {
+    let n = pts.len();
+    if n < 3 {
+        return None;
+    }
+    let step = pts[1].0 - pts[0].0;
+    let (peak, gmax) = pts.iter().enumerate().fold((0, 0.0f64), |b, (i, p)| if p.1 > b.1 { (i, p.1) } else { b });
+    if gmax <= 0.0 {
+        return None;
+    }
+    let half = gmax / 2.0;
+    // degrees from the peak to the half-power point going one way (dir = ±1), and whether
+    // the cut ended first (over ground: the lobe runs into the horizon, which is its edge)
+    let edge = |dir: isize| -> Option<(f64, bool)> {
+        let mut prev = gmax;
+        for k in 1..n as isize {
+            let i = peak as isize + dir * k;
+            let i = if circular {
+                i.rem_euclid(n as isize)
+            } else if i < 0 || i >= n as isize {
+                return Some(((k - 1) as f64 * step, true));
+            } else {
+                i
+            };
+            let g = pts[i as usize].1;
+            if g <= half {
+                // where between the last two samples the gain crosses −3 dB, in dB
+                let (a, b) = (db(prev), db(g.max(1e-30)));
+                let f = if a > b { ((a - db(half)) / (a - b)).clamp(0.0, 1.0) } else { 1.0 };
+                return Some(((k as f64 - 1.0 + f) * step, false));
+            }
+            prev = g;
+        }
+        None
+    };
+    let ((a, a_end), (b, b_end)) = (edge(1)?, edge(-1)?);
+    // a cut that never falls 3 dB at either end holds no lobe
+    (!(a_end && b_end) && a + b < 360.0).then_some(a + b)
+}
+
 #[derive(Clone, Debug)]
 pub struct FullResult {
     pub result: CalcResult,
@@ -1103,6 +1173,18 @@ pub fn calculate_tracked(ant: &Antenna, prog: &Progress) -> Result<FullResult, S
         r.power.radiated = f64::NAN;
         r.power.ground = None;
         r.result.eff = f64::NAN;
+    } else if r.power.ground.is_none() && rad.is_finite() {
+        // the average gain test: with no lossy ground, what radiates is what the wires,
+        // loads and lines don't lose, so a shortfall means the currents are wrong
+        let expect = r.power.nec_efficiency();
+        if expect > 0.0 && rad < expect * AGT_LOW {
+            r.warnings.push(format!(
+                "Average gain test: the gain averaged over all directions accounts for {} of the input power, but the antenna's own losses leave {} ({:.1} dB short). The model has a problem, often wires closer together than a few diameters, segments much shorter than their diameter, or a feed segment unlike its neighbours. Gain and impedance aren't reliable until it is fixed.",
+                pct(rad),
+                pct(expect),
+                -10.0 * (rad / expect).log10()
+            ));
+        }
     }
     Ok(r)
 }
@@ -1110,6 +1192,10 @@ pub fn calculate_tracked(ant: &Antenna, prog: &Progress) -> Result<FullResult, S
 /// Above this the radiated share is taken as meaningless (see `calculate`). NEC-2 can
 /// give a few percent over 100 % on models that fail its average gain test.
 pub const MAX_RADIATED: f64 = 1.10;
+
+/// The average gain test fails when, without lossy ground, the radiated share is more
+/// than 0.5 dB below what the antenna's own losses leave (the usual NEC rule of thumb).
+pub const AGT_LOW: f64 = 0.891;
 
 fn calculate_with(ant: &Antenna, prog: &Progress) -> Result<FullResult, String> {
     match ant.engine {
@@ -1467,5 +1553,59 @@ mod power_tests {
         // wiremom finds the currents over perfect ground when wires end on real ground
         let p = budget(3, Engine::Wiremom, |a| a.ground.kind = GroundKind::Real);
         assert!(p.reflection_only && p.ground.is_some(), "{}", p.line());
+    }
+}
+
+#[cfg(test)]
+mod beamwidth_tests {
+    use super::*;
+
+    #[test]
+    fn cos_squared_lobe() {
+        // G = cos²(θ) about 0°: half power at ±45°, so 90° wide
+        let pts: Vec<(f64, f64)> = (0..360).map(|a| {
+            let c = (a as f64).to_radians().cos();
+            (a as f64, if c > 0.0 { c * c } else { 0.0 })
+        }).collect();
+        let w = beamwidth(&pts, true).unwrap();
+        assert!((w - 90.0).abs() < 0.3, "{w}");
+    }
+
+    #[test]
+    fn lobe_on_the_horizon() {
+        // over ground (0..=180° from the front horizon), peak at 0°, half power at 30°
+        let pts: Vec<(f64, f64)> = (0..=180).map(|t| (t as f64, (-(t as f64 / 30.0).powi(2) * 2f64.ln()).exp())).collect();
+        let w = beamwidth(&pts, false).unwrap();
+        assert!((w - 30.0).abs() < 0.3, "{w}");
+    }
+
+    #[test]
+    fn round_pattern_has_none() {
+        let pts: Vec<(f64, f64)> = (0..360).map(|a| (a as f64, 1.0 + 0.1 * (a as f64).to_radians().cos())).collect();
+        assert_eq!(beamwidth(&pts, true), None);
+    }
+
+    #[test]
+    fn dipole_and_yagi() {
+        // a free-space dipole passes the average gain test
+        let mut a = Antenna::example(0);
+        a.engine = Engine::Wiremom;
+        let c = calculate(&a).unwrap();
+        assert!(c.warnings.iter().all(|w| !w.starts_with("Average gain test")), "{:?}", c.warnings);
+        // a quarter-wave vertical over perfect ground: the lobe sits on the horizon, which
+        // is its lower edge
+        let mut a = Antenna::example(3);
+        a.engine = Engine::Wiremom;
+        let c = calculate(&a).unwrap();
+        assert_eq!(c.patterns.az_beamwidth(), None);
+        let el = c.patterns.el_beamwidth().unwrap();
+        assert!(el > 30.0 && el < 60.0, "{el}");
+        // 3-element Yagi over ground: a forward lobe narrower than the dipole's
+        let mut a = Antenna::example(2);
+        a.engine = Engine::Wiremom;
+        let c = calculate(&a).unwrap();
+        let az = c.patterns.az_beamwidth().unwrap();
+        assert!(az > 40.0 && az < 75.0, "{az}");
+        assert!(c.patterns.el_beamwidth().is_some());
     }
 }

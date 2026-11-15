@@ -671,6 +671,7 @@ pub fn build(ant: &Antenna, source: Option<&Path>, calc: Option<&FullResult>, hi
                 ("SWR".into(), format!("{:.2} ({} Ω)", r.swr, ant.z0)),
                 ("Gain".into(), format!("{:.2} dBi ({:.2} dBd)", r.ga_dbi, r.ga_dbi - 2.15)),
                 ("Front/back".into(), format!("{:.2} dB", r.fb_db)),
+                ("Beamwidth (−3 dB)".into(), format!("azimuth {}, elevation {}", crate::mom::bw_text(c.patterns.az_beamwidth()), crate::mom::bw_text(c.patterns.el_beamwidth()))),
                 ("Efficiency".into(), format!("{} radiated", crate::mom::pct(r.eff))),
                 ("NEC efficiency".into(), format!("{} (ground loss not counted)", crate::mom::pct(c.power.nec_efficiency()))),
                 ("Maximum".into(), format!("azimuth {:.1}°, elevation {:.1}°", r.az_max, r.el_max)),
@@ -749,7 +750,7 @@ pub fn build(ant: &Antenna, source: Option<&Path>, calc: Option<&FullResult>, hi
             &p.az_cut,
             None,
             "Horizontal pattern (top view)",
-            &[format!("elevation {:.1}°   Ga {:.2} dBi   F/B {:.2} dB", p.el_cut_deg, r.ga_dbi, r.fb_db)],
+            &[format!("elevation {:.1}°   Ga {:.2} dBi   F/B {:.2} dB   −3 dB width {}", p.el_cut_deg, r.ga_dbi, r.fb_db, crate::mom::bw_text(p.az_beamwidth()))],
         );
         let ecy = if ground { cy + r0 * 0.35 } else { cy };
         polar(
@@ -760,7 +761,7 @@ pub fn build(ant: &Antenna, source: Option<&Path>, calc: Option<&FullResult>, hi
             &el,
             Some(ground),
             "Vertical pattern (side view)",
-            &[format!("azimuth {:.1}°   maximum at {:.1}° elevation", p.az_cut_deg, r.el_max)],
+            &[format!("azimuth {:.1}°   maximum at {:.1}° elevation   −3 dB width {}", p.az_cut_deg, r.el_max, crate::mom::bw_text(p.el_beamwidth()))],
         );
         d.y = cy + r0 + 48.0;
         d.pdf.text(M, d.y, 8.0, Font::Bold, TOTAL, "total");

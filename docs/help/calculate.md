@@ -98,7 +98,10 @@ either.
 ### Checking the model
 
 In free space and over perfect ground, the parts should add up to 100 %. If they are a long way
-off, the model needs more segments or has a problem, as with NEC's average gain test.
+off, the model needs more segments or has a problem, as with NEC's average gain test. When
+Radiated falls more than 0.5 dB (about 11 %) short of the NEC efficiency, a note says so: the
+currents are wrong, often because wires run closer together than a few diameters or segments
+are much shorter than they are thick.
 
 ## Patterns
 

@@ -1412,6 +1412,7 @@ impl App {
                 row(ui, &format!("SWR ({:.0} Ω)", self.ant.z0), format!("{:.2}", r.swr));
                 row(ui, "Gain", format!("{:.2} dBi  ({:.2} dBd)", r.ga_dbi, r.ga_dbi - 2.15));
                 row(ui, "F/B", format!("{:.2} dB", r.fb_db));
+                row(ui, "Beamwidth", format!("az {}  el {}  (−3 dB)", crate::mom::bw_text(c.patterns.az_beamwidth()), crate::mom::bw_text(c.patterns.el_beamwidth())));
                 row(ui, "Efficiency", crate::mom::pct(r.eff));
                 ui.label("NEC efficiency").on_hover_text(crate::mom::NEC_EFFICIENCY_NOTE);
                 ui.label(RichText::new(format!("{}  (ground loss not counted)", crate::mom::pct(c.power.nec_efficiency()))).monospace())
@@ -1496,11 +1497,11 @@ impl App {
         let p = &c.patterns;
         let ground = !p.free_space;
         let info_h = vec![
-            format!("Elevation {:.1}°   Ga {:.2} dBi   F/B {:.2} dB", p.el_cut_deg, r.ga_dbi, r.fb_db),
+            format!("Elevation {:.1}°   Ga {:.2} dBi   F/B {:.2} dB   −3 dB width {}", p.el_cut_deg, r.ga_dbi, r.fb_db, crate::mom::bw_text(p.az_beamwidth())),
             format!("{:.3} MHz   Z = {:.1} {} j{:.1} Ω   SWR {:.2}", r.freq_mhz, r.z.re, if r.z.im < 0.0 { "−" } else { "+" }, r.z.im.abs(), r.swr),
         ];
         let info_v = vec![
-            format!("Azimuth {:.1}°   max at {:.1}° elevation", p.az_cut_deg, r.el_max),
+            format!("Azimuth {:.1}°   max at {:.1}° elevation   −3 dB width {}", p.az_cut_deg, r.el_max, crate::mom::bw_text(p.el_beamwidth())),
             format!("{}   {}", r.ground.label(), if r.horizontal_pol { "horizontal pol." } else { "vertical pol." }),
         ];
         let az = p.az_cut.clone();

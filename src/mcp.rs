@@ -185,6 +185,7 @@ impl Server {
                 let ant = self.with_options(a)?;
                 let mut full = mom::calculate(&ant).map_err(CallError::Failed)?;
                 let mut v = result_json(&full.result);
+                beamwidth_json(&mut v, &full.patterns);
                 v["power_budget"] = power_json(&full.power);
                 v["warnings"] = json!(full.warnings);
                 if a.get("patterns").and_then(Value::as_bool).unwrap_or(false) {
@@ -347,6 +348,7 @@ impl Server {
                 std::fs::write(&p, bytes).map_err(|e| CallError::Failed(format!("Couldn't save {}: {e}", p.display())))?;
 
                 let mut v = json!({ "saved": p, "calculation": result_json(&calc.result) });
+                beamwidth_json(&mut v["calculation"], &calc.patterns);
                 v["calculation"]["power_budget"] = power_json(&calc.power);
                 v["calculation"]["warnings"] = json!(calc.warnings);
                 if let Some(rep) = &st.report {
@@ -551,6 +553,13 @@ fn merge_patch(target: &mut Value, patch: &Value) {
             merge_patch(t.entry(k.clone()).or_insert(Value::Null), v);
         }
     }
+}
+
+/// −3 dB beamwidths of the main lobe in the two pattern cuts (null when it never falls 3 dB).
+fn beamwidth_json(v: &mut Value, p: &mom::Patterns) {
+    let r1 = |w: Option<f64>| w.map(|w| (w * 10.0).round() / 10.0);
+    v["beamwidth_az_deg"] = json!(r1(p.az_beamwidth()));
+    v["beamwidth_el_deg"] = json!(r1(p.el_beamwidth()));
 }
 
 /// Where the input power goes, in percent of it.

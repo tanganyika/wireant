@@ -48,6 +48,10 @@ Save your antenna with **File → Save**. See [Files and preferences](files.md) 
 - **Ga dBi**: gain over an isotropic antenna in the best direction. **Gh dBd** is the same gain
   over a half-wave dipole, 2.15 dB less.
 - **F/B**: front-to-back ratio, the gain forward over the strongest gain within the rear range.
+- **Beamwidth**: the width of the main lobe between the points 3 dB down (half power), in the
+  horizontal and the vertical pattern. It shows **—** when a pattern doesn't fall 3 dB either
+  side of its peak, as with a vertical's round horizontal pattern. Over ground a lobe still
+  within 3 dB at the horizon is measured from the horizon.
 - **Elev.**: the elevation angle of the strongest radiation above the horizon.
 - **Segments**: each wire is split into short segments, and the current is found on each one.
   More segments give a more accurate result but take longer.
