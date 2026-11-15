@@ -48,6 +48,7 @@ fn main() -> eframe::Result<()> {
             _ => open = Some(PathBuf::from(a)),
         }
     }
+    install_panic_hook();
     // wgpu (DirectX 12 / Vulkan / Metal / OpenGL) by default; plain OpenGL (glow) when wgpu
     // can't start, e.g. old graphics drivers, virtual machines, remote desktop.
     let glow = std::env::var("WIREANT_RENDERER").map(|r| r.eq_ignore_ascii_case("glow")).unwrap_or(false);
@@ -67,9 +68,21 @@ fn main() -> eframe::Result<()> {
     );
     let Err(e) = result else { return Ok(()) };
     if !glow {
+        log_error(&format!("wgpu renderer failed, retrying with OpenGL: {e}"));
         // winit allows one event loop per process, so try OpenGL in a fresh one
         if let Ok(exe) = std::env::current_exe() {
             if let Ok(status) = std::process::Command::new(exe).args(std::env::args_os().skip(1)).env("WIREANT_RENDERER", "glow").status() {
+                // 0 = closed normally, 1 = start_failed already said why, 101 = the panic hook did;
+                // anything else is a crash (e.g. 0xC0000005 in a graphics driver) nobody reported
+                match status.code() {
+                    Some(0 | 1 | 101) => {}
+                    code => {
+                        let code = code.map_or("a signal".to_string(), |c| format!("code {c} (0x{:08X})", c as u32));
+                        let msg = format!("wireant crashed while starting with OpenGL: it exited with {code}.");
+                        log_error(&msg);
+                        error_box(&format!("{msg}\n\nDetails are in {}", log_path_text()));
+                    }
+                }
                 std::process::exit(status.code().unwrap_or(1));
             }
         }
@@ -85,15 +98,73 @@ fn start_failed(e: &eframe::Error) {
          OpenGL 2 or newer (or DirectX 12 / Vulkan). Updating the graphics driver normally fixes it; \
          in a virtual machine, turn on 3D acceleration."
     );
+    log_error(&msg);
+    error_box(&msg);
+}
+
+/// Where start-up failures and panics are written: %LOCALAPPDATA%\wireant\startup-error.txt,
+/// ~/.cache/wireant/startup-error.txt, ~/Library/Caches/wireant/startup-error.txt.
+fn log_path() -> Option<PathBuf> {
+    dirs::cache_dir().map(|d| d.join("wireant").join("startup-error.txt"))
+}
+
+fn log_path_text() -> String {
+    log_path().map_or("(no cache folder)".to_string(), |p| p.display().to_string())
+}
+
+/// Print `msg` and append it to the log with the version, time, renderer and OS, so a user
+/// can send the file. The log is cut back when it passes 256 KB.
+fn log_error(msg: &str) {
     eprintln!("{msg}");
-    if let Some(dir) = dirs::cache_dir() {
-        let _ = std::fs::create_dir_all(dir.join("wireant"));
-        let _ = std::fs::write(dir.join("wireant").join("startup-error.txt"), &msg);
+    let Some(path) = log_path() else { return };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
     }
+    if std::fs::metadata(&path).map(|m| m.len() > 256 * 1024).unwrap_or(false) {
+        let _ = std::fs::remove_file(&path);
+    }
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let renderer = std::env::var("WIREANT_RENDERER").unwrap_or_else(|_| "wgpu".into());
+    let entry = format!(
+        "=== wireant {} | unix time {secs} | renderer {renderer} | {} {} ===\n{msg}\n\n",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+    );
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = f.write_all(entry.as_bytes());
+    }
+}
+
+fn error_box(msg: &str) {
     rfd::MessageDialog::new()
         .set_level(rfd::MessageLevel::Error)
         .set_title("wireant")
         .set_description(msg)
         .set_buttons(rfd::MessageButtons::Ok)
         .show();
+}
+
+/// A panic would otherwise end the program without a word on Windows (no console), so log it
+/// with a backtrace, and on the main thread say so in a message box. Panics on worker threads
+/// (sweeps, optimizer) are only logged: the program carries on and reports the failed job.
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let thread = std::thread::current();
+        let name = thread.name().unwrap_or("unnamed").to_string();
+        let what = info.payload().downcast_ref::<&str>().map(|s| s.to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "(no message)".into());
+        let place = info.location().map(|l| format!(" at {}:{}", l.file(), l.line())).unwrap_or_default();
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        log_error(&format!("panic on thread '{name}'{place}: {what}\n\nbacktrace:\n{backtrace}"));
+        if name == "main" && std::env::var_os("WIREANT_NO_ERROR_BOX").is_none() {
+            error_box(&format!(
+                "wireant stopped because of an internal error:\n\n{what}{place}\n\n\
+                 Details were saved to {}. Please send that file with your report.",
+                log_path_text()
+            ));
+        }
+    }));
 }
