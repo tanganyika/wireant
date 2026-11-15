@@ -100,7 +100,16 @@ fn layout(ant: &Antenna, lambda: f64) -> Layout {
         // NEC-2 gets uniform segments at the taper's long-segment density (the seg = 0
         // rule, lambda/DM2) instead.  Explicit counts are kept.
         let seg = if w.seg < 0 { 0 } else { w.seg };
-        let lens = mom::wire_segment_lengths(len, lambda, seg, w.r, &ant.seg);
+        // The external program (NEC-4 / NEC-5) gets an explicit count as it is, as EZNEC
+        // gives it: the even-count and no-shorter-than-the-diameter rules are for NEC-2's
+        // thin-wire kernel, and on an EZNEC model with fine segmentation they cut the
+        // counts by half or more (a 432 MHz LFA went from 2328 segments to 925, moving the
+        // feed impedance by 10 + j15 ohms from what EZNEC gets with the same NEC-5).
+        let lens = if ant.engine == Engine::External && seg > 0 {
+            vec![len / seg as f64; seg as usize]
+        } else {
+            mom::wire_segment_lengths(len, lambda, seg, w.r, &ant.seg)
+        };
         // group equal lengths
         let mut runs: Vec<(usize, f64)> = Vec::new();
         for l in lens {
@@ -777,6 +786,19 @@ pub fn calculate(ant: &Antenna, prog: &crate::progress::Progress) -> Result<Full
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The external NEC program gets explicit segment counts as they are, as EZNEC passes
+    /// them, even below the wire diameter; NEC-2 still gets them capped and made even.
+    #[test]
+    fn external_keeps_explicit_counts() {
+        let mut a = Antenna::default();
+        a.wires.push(crate::model::Wire { p1: [-0.145, 0.0, 0.0], p2: [0.145, 0.0, 0.0], r: 0.00626, seg: 101, ..Default::default() });
+        let count = |a: &Antenna| -> usize { let lay = layout(a, a.lambda()); lay.by_wire[0].iter().map(|&p| lay.pieces[p].nseg).sum() };
+        a.engine = Engine::External;
+        assert_eq!(count(&a), 101);
+        a.engine = Engine::Nec2;
+        assert!(count(&a) <= 24, "NEC-2 keeps segments at least a diameter long");
+    }
 
     /// A centre feed lands on the middle segment of an odd run, including one at 50.5%
     /// (EZNEC files with an even count put it there), not half a segment to one side.
