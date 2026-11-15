@@ -308,7 +308,10 @@ Ubuntu 20.04 or later, Debian 11 or later, Fedora, openSUSE ...):
 If the window doesn't open, wireant tries plain OpenGL after the default renderer
 (Vulkan/OpenGL ES), says why in a message box if neither works, and leaves the
 message in `~/.cache/wireant/startup-error.txt` (`%LOCALAPPDATA%\wireant` on Windows).
-`WIREANT_RENDERER=glow` starts it with OpenGL straight away.
+`WIREANT_RENDERER=glow` starts it with OpenGL straight away. On Windows the default
+renderer uses DirectX 12, as some older Vulkan drivers crash. If a graphics driver crashes
+wireant while it starts, the next start uses OpenGL; `WIREANT_RENDERER=wgpu` tries the
+default renderer again.
 
  To build it yourself you need Rust (<https://rustup.rs>) and a C
 compiler (`sudo apt install build-essential` on Debian/Ubuntu/Zorin). Cargo fetches the

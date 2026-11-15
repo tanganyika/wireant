@@ -55,7 +55,32 @@ fn main() -> eframe::Result<()> {
     install_panic_hook();
     // wgpu (DirectX 12 / Vulkan / Metal / OpenGL) by default; plain OpenGL (glow) when wgpu
     // can't start, e.g. old graphics drivers, virtual machines, remote desktop.
-    let glow = std::env::var("WIREANT_RENDERER").map(|r| r.eq_ignore_ascii_case("glow")).unwrap_or(false);
+    let forced = std::env::var("WIREANT_RENDERER").ok().map(|r| r.to_ascii_lowercase());
+    // A graphics driver can crash the whole process while wgpu starts (seen: Intel's Vulkan
+    // driver igvk64.dll, 0xC0000005), which no error return catches. A marker file is written
+    // before wgpu starts and removed once the window is up; if it is still there, the last
+    // wgpu start crashed, so use OpenGL. WIREANT_RENDERER=wgpu tries wgpu again.
+    let marker_path = log_path().map(|p| p.with_file_name("wgpu-starting"));
+    let crashed_before = forced.is_none() && marker_path.as_ref().is_some_and(|m| m.exists());
+    if crashed_before {
+        log_error("the last start with wgpu crashed; starting with OpenGL (set WIREANT_RENDERER=wgpu to try wgpu again)");
+    }
+    let glow = forced.as_deref() == Some("glow") || crashed_before;
+    // On Windows use DirectX 12 only: it works on every Windows 10/11 GPU, while old Vulkan
+    // drivers (Intel especially) crash. WGPU_BACKEND still overrides this.
+    #[cfg(windows)]
+    if std::env::var_os("WGPU_BACKEND").is_none() {
+        // SAFETY: still single-threaded, nothing else reads the environment yet
+        unsafe { std::env::set_var("WGPU_BACKEND", "dx12") };
+    }
+    // only a wgpu start owns the marker; an OpenGL start must leave it in place
+    let marker = if glow { None } else { marker_path };
+    if let Some(m) = &marker {
+        if let Some(dir) = m.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(m, "wgpu start in progress; if this file stays, wgpu crashed\n");
+    }
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 820.0])
@@ -68,8 +93,21 @@ fn main() -> eframe::Result<()> {
     let result = eframe::run_native(
         "wireant",
         options,
-        Box::new(move |cc| Ok(Box::new(app::App::new(cc, open, tab, shot)))),
+        Box::new({
+            let marker = marker.clone();
+            move |cc| {
+                // the renderer is up (adapter, device and surface made), so wgpu didn't crash
+                if let Some(m) = &marker {
+                    let _ = std::fs::remove_file(m);
+                }
+                Ok(Box::new(app::App::new(cc, open, tab, shot)))
+            }
+        }),
     );
+    // a clean error return isn't a crash: the OpenGL retry below handles it
+    if let Some(m) = &marker {
+        let _ = std::fs::remove_file(m);
+    }
     let Err(e) = result else { return Ok(()) };
     if !glow {
         log_error(&format!("wgpu renderer failed, retrying with OpenGL: {e}"));
