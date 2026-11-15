@@ -155,7 +155,11 @@ impl Server {
                 let patch = a.get("patch").ok_or_else(|| CallError::Failed("Missing 'patch'.".into()))?;
                 let mut v = serde_json::to_value(&self.ant).unwrap();
                 merge_patch(&mut v, patch);
-                let ant: Antenna = serde_json::from_value(v).map_err(|e| CallError::Failed(format!("The patch doesn't give a valid antenna: {e}")))?;
+                let mut ant: Antenna = serde_json::from_value(v).map_err(|e| CallError::Failed(format!("The patch doesn't give a valid antenna: {e}")))?;
+                // a new material sets the wire ends (pipe open, wire flat) unless the patch sets them
+                if patch.get("material").is_some() && patch.get("open_ends").is_none() {
+                    ant.open_ends = ant.material.is_pipe();
+                }
                 self.ant = checked(ant)?;
                 self.summary()
             }
@@ -773,7 +777,7 @@ fn tools() -> Value {
         },
         {
             "name": "get_antenna",
-            "description": "Returns the current antenna as JSON: wires (p1, p2 in m, radius r in m, seg <= 0 = automatic, insulation ins_t/ins_eps), sources (current: true = a current source, volts then in amps), loads (type rx / lc / rlc), transmission lines, plates, ground (kind free/perfect/real, eps_r, sigma_ms, add_height), material, z0 for SWR, segmentation, engine and open_ends (wiremom: free wire ends open like a tube, as NEC models them, instead of flat rod-end caps).",
+            "description": "Returns the current antenna as JSON: wires (p1, p2 in m, radius r in m, seg <= 0 = automatic, insulation ins_t/ins_eps), sources (current: true = a current source, volts then in amps), loads (type rx / lc / rlc), transmission lines, plates, ground (kind free/perfect/real, eps_r, sigma_ms, add_height), material, z0 for SWR, segmentation, engine and open_ends (wiremom: free wire ends open like a tube, as NEC models them, instead of flat rod-end caps; patching material sets it, true for pipe materials, unless the patch sets it too).",
             "inputSchema": { "type": "object", "properties": {} },
             "annotations": ro,
         },

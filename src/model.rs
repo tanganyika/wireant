@@ -368,6 +368,11 @@ impl Material {
     pub fn is_user(&self) -> bool {
         matches!(self, Material::UserWire | Material::UserPipe)
     }
+    /// A tube: its free ends are open (no end cap), where a wire is a solid rod with flat
+    /// ends. Choosing a material sets [`Antenna::open_ends`] to match.
+    pub fn is_pipe(&self) -> bool {
+        matches!(self, Material::CuPipe | Material::AlPipe | Material::FePipe | Material::UserPipe)
+    }
     pub fn code(&self) -> i32 {
         Material::ALL.iter().position(|m| m == self).unwrap_or(0) as i32
     }
@@ -543,7 +548,14 @@ impl Antenna {
         a
     }
 
+    /// A built-in example, its wire ends matching its material (open for pipe).
     pub fn example(i: usize) -> Antenna {
+        let mut a = Antenna::example_wires(i);
+        a.open_ends = a.material.is_pipe();
+        a
+    }
+
+    fn example_wires(i: usize) -> Antenna {
         let real = |h: f64| Ground { kind: GroundKind::Real, eps_r: 13.0, sigma_ms: 5.0, add_height: h, second: SecondMedium::default() };
         let base = |name: &str, f: f64| Antenna {
             name: name.to_string(),
@@ -664,5 +676,18 @@ impl Default for TLine {
 impl Default for Antenna {
     fn default() -> Self {
         Antenna::blank()
+    }
+}
+
+#[cfg(test)]
+mod wire_end_tests {
+    use super::*;
+
+    #[test]
+    fn pipes_have_open_ends() {
+        assert!(Material::AlPipe.is_pipe() && !Material::AlWire.is_pipe() && !Material::Lossless.is_pipe());
+        // the Yagi example is aluminium pipe, the dipole copper wire
+        assert!(Antenna::example(2).open_ends);
+        assert!(!Antenna::example(0).open_ends);
     }
 }

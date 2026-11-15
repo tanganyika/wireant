@@ -79,7 +79,11 @@ that ends on a plate connects to it, so a monopole can be fed against a plate.
   carries charge, as the end of a solid rod does, so a thick element acts about a radius longer at
   each end. **open (tube, as NEC)** leaves the ends open, as on a hollow tube and as NEC and MININEC
   model every end. On thick elements at VHF and UHF the choice can move a Yagi's band edge by about
-  half a percent; use **open** to compare with NEC results.
+  half a percent; use **open** to compare with NEC results. Choosing a **Wire material** sets it:
+  a pipe is a tube, so its ends are open, and a wire is a solid rod with flat ends. Change it
+  afterwards for tubes with metal end caps. EZNEC files, and NEC files from other programs, don't
+  say which, so they come in with flat ends; `.maa` files follow their material, and wireant's own
+  NEC files keep your choice.
 - **Rear range for F/B**: how wide the rear region is, in azimuth and in elevation, when looking
   for the strongest rear lobe.
 - **SWR reference (Ω)**: the feed line impedance used for SWR.

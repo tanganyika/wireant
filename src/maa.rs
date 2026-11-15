@@ -176,6 +176,7 @@ pub fn parse(text: &str) -> Result<Antenna, String> {
                     };
                     ant.ground.add_height = f(v.get(1), 0.0);
                     ant.material = Material::from_code(f(v.get(2), 0.0) as i32);
+                    ant.open_ends = ant.material.is_pipe();
                     ant.z0 = f(v.get(3), 50.0);
                     ant.fb_az = f(v.get(4), 120.0);
                     ant.fb_el = f(v.get(5), 60.0);

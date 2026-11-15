@@ -2253,7 +2253,10 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
         ui.label("Wire material");
         egui::ComboBox::from_id_salt(ui.next_auto_id()).selected_text(ant.material.label()).show_ui(ui, |ui| {
             for m in Material::ALL {
-                ui.selectable_value(&mut ant.material, m, m.label());
+                // a pipe is a tube with open ends, a wire a solid rod with flat ones
+                if ui.selectable_value(&mut ant.material, m, m.label()).changed() {
+                    ant.open_ends = m.is_pipe();
+                }
             }
         });
         ui.end_row();
@@ -2268,9 +2271,9 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
         ui.label("Wire ends");
         ui.horizontal(|ui| {
             ui.radio_value(&mut ant.open_ends, false, "flat (solid rod)")
-                .on_hover_text("Each free wire end is a flat cap that carries charge, as on a solid rod: a thick element then acts a little longer (about a radius at each end). wiremom only.");
+                .on_hover_text("Each free wire end is a flat cap that carries charge, as on a solid rod: a thick element then acts a little longer (about a radius at each end). Set by a wire material; wiremom only.");
             ui.radio_value(&mut ant.open_ends, true, "open (tube, as NEC)")
-                .on_hover_text("Free wire ends carry no charge, as on an open tube and as NEC and MININEC model every end. Choose this to compare with NEC results. wiremom only.");
+                .on_hover_text("Free wire ends carry no charge, as on an open tube and as NEC and MININEC model every end. Set by a pipe material; choose it to compare with NEC results. wiremom only.");
         });
         ui.end_row();
         ui.label("Rear range for F/B");
