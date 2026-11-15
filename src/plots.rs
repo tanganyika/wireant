@@ -1058,6 +1058,11 @@ fn draw_overlay(painter: &egui::Painter, rect: Rect, ant: &Antenna, dz: f64, pro
 
 // ------------------------------------------------------------------ 3D pattern
 
+/// Spacing of the 3D pattern's grid lines, degrees of elevation and azimuth.
+const GRID_LINE_DEG: f64 = 15.0;
+/// Width of those lines, pixels.
+const GRID_LINE_PX: f32 = 0.9;
+
 /// Solid 3D radiation pattern (log radius like the polar plots), coloured by gain and shaded.
 /// Drag to rotate, wheel to zoom, double-click to reset; hovering shows the gain under the mouse.
 pub fn pattern3d(ui: &mut egui::Ui, size: Vec2, p: &crate::mom::Patterns, st: &mut ViewState, show_mesh: bool, rscale: Scale3D, min_db: f64) {
@@ -1135,45 +1140,89 @@ pub fn pattern3d(ui: &mut egui::Ui, size: Vec2, p: &crate::mom::Patterns, st: &m
         painter.line_segment([to_screen(cam([0.0; 3])), to_screen(cam(e))], Stroke::new(1.2, col));
         painter.text(to_screen(cam(e)), Align2::CENTER_CENTER, name, FontId::proportional(12.0), col);
     }
-    // triangles, far to near
-    let mut tris: Vec<(f32, [[f32; 3]; 3], [f64; 3])> = Vec::with_capacity(n_el * n_az * 2);
+    // Quads of the surface and the grid lines on it, drawn far to near into one mesh. A grid
+    // line is sorted just in front of the nearer of the two quads it borders, so the surface
+    // hides the lines behind it and the grid shows the shape (a see-through wireframe hides it).
+    enum Item {
+        Quad([[f32; 3]; 4], [f64; 4]),
+        Line([f32; 3], [f32; 3]),
+    }
+    // lines every 15° of elevation and azimuth (every 5th row/column at the 3° grid step)
+    let every = ((GRID_LINE_DEG / p.grid_step).round() as usize).max(1);
+    let el_line = |i: usize| ((p.grid_els[i] / p.grid_step).round() as i64).rem_euclid(every as i64) == 0;
+    let az_line = |j: usize| (j % n_az) % every == 0;
+    let mut quad_depth = vec![0.0f32; (n_el - 1) * n_az];
+    let mut items: Vec<(f32, Item)> = Vec::with_capacity((n_el - 1) * n_az * 2);
     for i in 0..n_el - 1 {
         for j in 0..n_az {
             let (a, ga) = point(i, j);
             let (b, gb) = point(i, j + 1);
             let (c, gc) = point(i + 1, j + 1);
             let (d, gd) = point(i + 1, j);
-            for (t, g) in [([a, b, c], [ga, gb, gc]), ([a, c, d], [ga, gc, gd])] {
-                let ct = [cam(t[0]), cam(t[1]), cam(t[2])];
-                let depth = (ct[0][2] + ct[1][2] + ct[2][2]) / 3.0;
-                tris.push((depth, ct, g));
+            let q = [cam(a), cam(b), cam(c), cam(d)];
+            let depth = (q[0][2] + q[1][2] + q[2][2] + q[3][2]) / 4.0;
+            quad_depth[i * n_az + j] = depth;
+            items.push((depth, Item::Quad(q, [ga, gb, gc, gd])));
+        }
+    }
+    if show_mesh {
+        let qd = |i: usize, j: usize| quad_depth[i * n_az + (j % n_az)];
+        for i in 0..n_el {
+            for j in 0..n_az {
+                // the line along elevation row i from azimuth j to j+1, between quads (i-1, j) and (i, j)
+                if el_line(i) {
+                    let near = match (i > 0, i < n_el - 1) {
+                        (true, true) => qd(i - 1, j).min(qd(i, j)),
+                        (true, false) => qd(i - 1, j),
+                        _ => qd(i, j),
+                    };
+                    items.push((near - 1e-4, Item::Line(cam(point(i, j).0), cam(point(i, j + 1).0))));
+                }
+                // the line along azimuth column j from row i to i+1, between quads (i, j-1) and (i, j)
+                if i < n_el - 1 && az_line(j) {
+                    let near = qd(i, j + n_az - 1).min(qd(i, j));
+                    items.push((near - 1e-4, Item::Line(cam(point(i, j).0), cam(point(i + 1, j).0))));
+                }
             }
         }
     }
-    tris.sort_by(|x, y| y.0.partial_cmp(&x.0).unwrap_or(std::cmp::Ordering::Equal));
+    items.sort_by(|x, y| y.0.partial_cmp(&x.0).unwrap_or(std::cmp::Ordering::Equal));
     let mut mesh = Mesh::default();
-    let mut lines = Vec::new();
-    for (_, t, g) in &tris {
-        let u = [t[1][0] - t[0][0], t[1][1] - t[0][1], t[1][2] - t[0][2]];
-        let v = [t[2][0] - t[0][0], t[2][1] - t[0][1], t[2][2] - t[0][2]];
-        let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-        let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-        let light = if nl > 0.0 { 0.55 + 0.45 * (n[2].abs() / nl) } else { 0.8 };
-        let base = mesh.vertices.len() as u32;
-        for k in 0..3 {
-            let col = heat(((g[k] - floor) / -floor) as f32);
-            let shade = |c: u8| (c as f32 * light) as u8;
-            mesh.vertices.push(Vertex { pos: to_screen(t[k]), uv: WHITE_UV, color: Color32::from_rgb(shade(col.r()), shade(col.g()), shade(col.b())) });
-        }
-        mesh.indices.extend_from_slice(&[base, base + 1, base + 2]);
-        if show_mesh {
-            lines.push([to_screen(t[0]), to_screen(t[1])]);
+    let line_col = Color32::from_rgba_unmultiplied(30, 30, 30, 110);
+    for (_, item) in &items {
+        match item {
+            Item::Quad(t, g) => {
+                let u = [t[2][0] - t[0][0], t[2][1] - t[0][1], t[2][2] - t[0][2]];
+                let v = [t[3][0] - t[1][0], t[3][1] - t[1][1], t[3][2] - t[1][2]];
+                let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+                let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+                let light = if nl > 0.0 { 0.55 + 0.45 * (n[2].abs() / nl) } else { 0.8 };
+                let base = mesh.vertices.len() as u32;
+                for k in 0..4 {
+                    let col = heat(((g[k] - floor) / -floor) as f32);
+                    let shade = |c: u8| (c as f32 * light) as u8;
+                    mesh.vertices.push(Vertex { pos: to_screen(t[k]), uv: WHITE_UV, color: Color32::from_rgb(shade(col.r()), shade(col.g()), shade(col.b())) });
+                }
+                mesh.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            }
+            Item::Line(a, b) => {
+                // a thin quad, so the lines stay in the same depth order as the surface
+                let (pa, pb) = (to_screen(*a), to_screen(*b));
+                let dir = pb - pa;
+                let len = dir.length();
+                if len < 0.01 {
+                    continue;
+                }
+                let off = Vec2::new(-dir.y, dir.x) / len * (GRID_LINE_PX / 2.0);
+                let base = mesh.vertices.len() as u32;
+                for pos in [pa - off, pb - off, pb + off, pa + off] {
+                    mesh.vertices.push(Vertex { pos, uv: WHITE_UV, color: line_col });
+                }
+                mesh.indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            }
         }
     }
     painter.add(egui::Shape::mesh(mesh));
-    for l in lines {
-        painter.line_segment(l, Stroke::new(0.3, Color32::from_rgba_unmultiplied(40, 40, 40, 60)));
-    }
     // hover readout: nearest grid direction under the mouse (front-most)
     if let Some(m) = resp.hover_pos() {
         let mut best: Option<(f32, usize, usize)> = None;
