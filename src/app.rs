@@ -107,6 +107,7 @@ pub struct App {
     undo: Vec<Antenna>,
     tools: crate::tools::ToolsState,
     exposure: crate::exposure::ExposureState,
+    stack: crate::stack::StackState,
     edit_anchor: u8,
     edit_move_joined: bool,
     az_cursor: Option<f64>,
@@ -245,6 +246,7 @@ impl App {
             undo: Vec::new(),
             tools: crate::tools::ToolsState::default(),
             exposure: crate::exposure::ExposureState::default(),
+            stack: crate::stack::StackState::default(),
             edit_anchor: 0,
             edit_move_joined: true,
             az_cursor: None,
@@ -276,6 +278,8 @@ impl App {
         }
         // test hook: WIREANT_ABOUT=1 starts with Help → About open
         app.about_open = std::env::var_os("WIREANT_ABOUT").is_some();
+        // test hook: WIREANT_STACK=1 starts with Tools → Stack / bay array open
+        app.stack.open = std::env::var_os("WIREANT_STACK").is_some();
         // test hook: WIREANT_EXPOSURE=3d|level|x|y starts with Tools → RF exposure open,
         // in 3D or on that plane
         if let Ok(p) = std::env::var("WIREANT_EXPOSURE") {
@@ -391,6 +395,7 @@ impl App {
         self.selected_wire = None;
         // tools and undo belong to the previous antenna
         self.tools.for_antenna(&self.ant);
+        self.stack.for_antenna();
         self.undo.clear();
         self.wire_edit = None;
     }
@@ -705,6 +710,10 @@ impl App {
                     self.tools.match_open = true;
                     ui.close();
                 }
+                if ui.button("Stack / bay array…").on_hover_text("Copies of the antenna stacked and/or side by side, fed in phase").clicked() {
+                    self.stack.open = true;
+                    ui.close();
+                }
                 if ui.button("RF exposure…").on_hover_text("Field strength around the antenna against exposure limits, from the last calculation").clicked() {
                     self.exposure.open = true;
                     ui.close();
@@ -1013,6 +1022,17 @@ impl App {
         let mut acts = crate::tools::resonance_window(ctx, &mut self.tools, self.ant.z0, busy, searching);
         acts.extend(crate::tools::match_window(ctx, &mut self.tools, self.calc.is_some()));
         crate::exposure::window(ctx, &mut self.exposure, &self.ant, self.calc.as_ref());
+        if let Some(a) = crate::stack::window(ctx, &mut self.stack, &self.ant) {
+            if !self.busy() {
+                self.undo.push(self.ant.clone());
+                let n = a.wires.len();
+                self.ant = a;
+                self.calc = None;
+                self.wire_edit = None;
+                self.selected_wire = None;
+                self.status = format!("Made the array ({n} wires). Press Calculate to see it; Undo brings back the single antenna.");
+            }
+        }
         for a in acts {
             match a {
                 crate::tools::ToolAction::FindResonances => {

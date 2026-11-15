@@ -181,6 +181,34 @@ impl Server {
                 delete_wire(&mut self.ant, i);
                 self.summary()
             }
+            "stack_array" => {
+                let n_stack = a.get("n_stack").and_then(Value::as_u64).unwrap_or(1).clamp(1, 8) as usize;
+                let n_bay = a.get("n_bay").and_then(Value::as_u64).unwrap_or(1).clamp(1, 8) as usize;
+                // spacings and beam direction default to the DL6WU suggestion from free space
+                let need_hint = a.get("stack_spacing_m").is_none() || a.get("bay_spacing_m").is_none() || a.get("beam_azimuth_deg").is_none();
+                let hint = if need_hint { Some(crate::stack::free_space_beamwidths(&self.ant).map_err(CallError::Failed)?) } else { None };
+                let lambda = self.ant.lambda();
+                let pick = |key: &str, bw: Option<f64>| -> f64 { a.get(key).and_then(Value::as_f64).unwrap_or_else(|| crate::stack::spacing_for(lambda, bw)) };
+                let layout = crate::stack::Layout {
+                    n_stack,
+                    d_stack: pick("stack_spacing_m", hint.and_then(|h| h.1)),
+                    n_bay,
+                    d_bay: pick("bay_spacing_m", hint.and_then(|h| h.0)),
+                    beam_az: a.get("beam_azimuth_deg").and_then(Value::as_f64).unwrap_or_else(|| hint.map_or(0.0, |h| h.2)),
+                };
+                let arr = crate::stack::build(&self.ant, &layout).map_err(CallError::Failed)?;
+                self.ant = arr;
+                let mut v = self.summary();
+                v["array"] = json!({
+                    "layout": crate::stack::describe(&layout),
+                    "stack_spacing_m": layout.d_stack,
+                    "bay_spacing_m": layout.d_bay,
+                    "beam_azimuth_deg": layout.beam_az,
+                    "free_space_beamwidths_deg": hint.map(|h| json!({ "horizontal": h.0, "vertical": h.1 })),
+                    "note": "Every copy's feed is a current source of the same amplitude and phase (an ideal splitter). Calculate to see the array.",
+                });
+                v
+            }
             "rf_exposure" => {
                 let ant = self.with_options(a)?;
                 let pts: Vec<[f64; 3]> = a
@@ -797,6 +825,18 @@ fn tools() -> Value {
             "annotations": ro,
         },
         {
+            "name": "stack_array",
+            "description": "Replaces the current antenna with an array of copies of it: n_stack one above another and/or n_bay side by side across the beam, all fed in phase (current sources). Spacings not given default to the DL6WU spacing from the antenna's free-space −3 dB beamwidths, D = λ / (2·sin(BW/2)), or 0.75 λ in a plane where the pattern is round.",
+            "inputSchema": { "type": "object", "properties": {
+                "n_stack": { "type": "integer", "minimum": 1, "maximum": 8, "description": "Antennas one above another (default 1)." },
+                "stack_spacing_m": { "type": "number", "description": "Vertical spacing (m); default from the vertical beamwidth." },
+                "n_bay": { "type": "integer", "minimum": 1, "maximum": 8, "description": "Antennas side by side (default 1)." },
+                "bay_spacing_m": { "type": "number", "description": "Horizontal spacing (m); default from the horizontal beamwidth." },
+                "beam_azimuth_deg": { "type": "number", "description": "Azimuth of the beam, which the bayed copies sit across; default the free-space maximum." },
+            } },
+            "annotations": { "destructiveHint": true },
+        },
+        {
             "name": "rf_exposure",
             "description": "RF exposure: RMS electric and magnetic field strength at given points around the current antenna, from its calculated currents, at an average power into the antenna, with each point's share of a standard's general-public reference levels (time-averaged). Coordinates are the model's (metres, ground at z = 0).",
             "inputSchema": { "type": "object", "properties": {
@@ -958,6 +998,12 @@ mod tests {
         let far = pts[1]["percent_of_limit"].as_f64().unwrap();
         assert!(near > 100.0 && far < 100.0 && near > far, "{r}");
         assert_eq!(r["limits"]["e_v_per_m"].as_f64(), Some(28.0));
+
+        // a pair of the dipoles side by side across their beam
+        let r = tool(&mut s, "stack_array", json!({ "n_bay": 2 }));
+        assert_eq!(r["array"]["layout"], "2 bayed");
+        assert!(r["array"]["bay_spacing_m"].as_f64().unwrap() > 5.0, "{r}");
+        assert_eq!(s.ant.wires.len(), 2);
 
         // add a wire, delete it again
         tool(&mut s, "set_wire", json!({ "index": 1, "wire": { "p1": [1, -5, 0], "p2": [1, 5, 0] } }));

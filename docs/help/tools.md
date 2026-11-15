@@ -1,7 +1,7 @@
 # Tools
 
-The **Tools** menu holds the resonance finder, the match calculator, the RF exposure check, the
-PDF report and, with an external NEC program set, the engine comparison report.
+The **Tools** menu holds the resonance finder, the match calculator, the stack / bay array
+builder, the RF exposure check, the PDF report and, with an external NEC program set, the engine comparison report.
 
 ## Resonance finder
 
@@ -64,6 +64,26 @@ transmitter side of the match, and **↶ Undo** on the View tab (Ctrl+Z) takes i
   source on the last one.
 
 L networks and lines need the wiremom or NEC-2 engine. The parts are ideal (no loss).
+
+## Stack / bay array
+
+**Tools → Stack / bay array…** turns the antenna into an array of copies of itself: **Stacked**
+one above another, and/or **Bayed** side by side across the beam. **Beam towards** is the
+direction of the beam (filled in from the antenna); bayed copies sit across it. The copies are
+centred on the original, and their sources, loads, lines and plates are copied with them.
+
+Every copy is fed in phase with the same current, as through an ideal power splitter and equal
+phasing lines, so the result shows what the array itself can do; each copy's impedance in the
+Calculate results then includes the coupling to its neighbours.
+
+The spacings start at the usual compromise between gain and side lobes, from the antenna's −3 dB
+beamwidth in free space (DL6WU): D = λ / (2·sin(BW/2)), using the vertical beamwidth for stacking
+and the horizontal one for baying. Where the pattern is round in that plane (a dipole broadside,
+a vertical) 0.75 λ is used. **Suggest spacings** works them out again.
+
+**Make the array** puts it in place of the antenna; **Undo** brings the single antenna back. Two
+antennas give close to 3 dB more gain and half the beamwidth in the direction they are spaced; four
+in a square, close to 6 dB.
 
 ## RF exposure
 
