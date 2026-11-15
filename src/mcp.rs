@@ -181,6 +181,57 @@ impl Server {
                 delete_wire(&mut self.ant, i);
                 self.summary()
             }
+            "rf_exposure" => {
+                let ant = self.with_options(a)?;
+                let pts: Vec<[f64; 3]> = a
+                    .get("points")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| CallError::Failed("Missing 'points': a list of [x, y, z] in metres.".into()))?
+                    .iter()
+                    .map(|p| {
+                        let v: Vec<f64> = p.as_array().map(|v| v.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+                        if v.len() == 3 { Ok([v[0], v[1], v[2]]) } else { Err(CallError::Failed("Each point is [x, y, z] in metres.".into())) }
+                    })
+                    .collect::<Result<_, _>>()?;
+                if pts.is_empty() || pts.len() > 10_000 {
+                    return fail("Give between 1 and 10000 points.".into());
+                }
+                let std_key = a.get("standard").and_then(Value::as_str).unwrap_or("icnirp1998");
+                let std = crate::nearfield::Standard::from_key(std_key).ok_or_else(|| CallError::Failed(format!("Unknown standard '{std_key}': use icnirp1998, icnirp2020 or fcc.")))?;
+                let avg = a.get("average_power_w").and_then(Value::as_f64).unwrap_or(100.0).max(0.0);
+                let full = mom::calculate(&ant).map_err(CallError::Failed)?;
+                if full.near.p_in <= 0.0 {
+                    return fail("The calculation delivered no power into the antenna.".into());
+                }
+                let lim = std.limits(ant.freq_mhz);
+                let s = (avg / full.near.p_in).sqrt();
+                let f = crate::nearfield::fields(&full.near, &ant, ant.freq_mhz, &pts);
+                let r3 = |x: f64| (x * 1000.0).round() / 1000.0;
+                let rows: Vec<Value> = pts.iter().zip(&f).map(|(p, (e, h))| {
+                    let (er, hr) = crate::nearfield::rms(e, h);
+                    let (er, hr) = (er * s, hr * s);
+                    let mut o = json!({ "point": p, "e_v_per_m": r3(er), "h_a_per_m": (hr * 1e5).round() / 1e5 });
+                    if let Some(l) = lim {
+                        o["percent_of_limit"] = json!((crate::nearfield::ratio(er, hr, l) * 1000.0).round() / 10.0);
+                    }
+                    o
+                }).collect();
+                let mut v = json!({
+                    "freq_mhz": ant.freq_mhz,
+                    "average_power_w": avg,
+                    "standard": std.label(),
+                    "points": rows,
+                    "note": "RMS fields from the calculated currents, scaled to the average power into the antenna. percent_of_limit is the larger of (E/E_limit)² and (H/H_limit)². Over real ground the reflection is approximated.",
+                });
+                match lim {
+                    Some((e, h)) => v["limits"] = json!({ "e_v_per_m": e, "h_a_per_m": h }),
+                    None => v["limits"] = json!(format!("{} has no limits at this frequency", std.label())),
+                }
+                if full.near.plates_left_out {
+                    v["warning"] = json!("The plates' currents aren't included.");
+                }
+                v
+            }
             "calculate" => {
                 let ant = self.with_options(a)?;
                 let mut full = mom::calculate(&ant).map_err(CallError::Failed)?;
@@ -344,7 +395,21 @@ impl Server {
                 }
 
                 let history = [calc.result.clone()];
-                let bytes = crate::report::build(&ant, self.path.as_deref(), Some(&calc), &history, &st, &crate::plots::ViewState::default());
+                // RF exposure at the average power asked for (as a constant carrier, all the time)
+                let mut ex = crate::exposure::ExposureState::default();
+                ex.pep_w = a.get("exposure_average_power_w").and_then(Value::as_f64).unwrap_or(100.0).max(0.0);
+                ex.mode = crate::exposure::MODES.iter().position(|m| m.1 == 1.0).unwrap_or(0);
+                ex.on_air = 1.0;
+                if let Some(k) = a.get("exposure_standard").and_then(Value::as_str) {
+                    ex.standard = crate::nearfield::Standard::from_key(k).ok_or_else(|| CallError::Failed(format!("Unknown standard '{k}': use icnirp1998, icnirp2020 or fcc.")))?;
+                }
+                if let Some(h) = a.get("exposure_height_m").and_then(Value::as_f64) {
+                    ex.setup.height = h;
+                }
+                if let Some(m) = a.get("exposure_reach_m").and_then(Value::as_f64) {
+                    ex.setup.margin = m.clamp(0.5, 500.0);
+                }
+                let bytes = crate::report::build(&ant, self.path.as_deref(), Some(&calc), &history, &st, &crate::plots::ViewState::default(), &ex);
                 std::fs::write(&p, bytes).map_err(|e| CallError::Failed(format!("Couldn't save {}: {e}", p.display())))?;
 
                 let mut v = json!({ "saved": p, "calculation": result_json(&calc.result) });
@@ -732,6 +797,18 @@ fn tools() -> Value {
             "annotations": ro,
         },
         {
+            "name": "rf_exposure",
+            "description": "RF exposure: RMS electric and magnetic field strength at given points around the current antenna, from its calculated currents, at an average power into the antenna, with each point's share of a standard's general-public reference levels (time-averaged). Coordinates are the model's (metres, ground at z = 0).",
+            "inputSchema": { "type": "object", "properties": {
+                "points": { "type": "array", "items": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }, "description": "Points [x, y, z] in metres." },
+                "average_power_w": { "type": "number", "description": "Average power into the antenna (PEP × mode duty × time on air), default 100 W." },
+                "standard": { "type": "string", "enum": ["icnirp1998", "icnirp2020", "fcc"], "description": "Default icnirp1998 (EU, UK Ofcom)." },
+                "engine": engine_prop(),
+                "freq_mhz": freq_prop(),
+            }, "required": ["points"] },
+            "annotations": ro,
+        },
+        {
             "name": "sweep",
             "description": "Frequency sweep of the current antenna: R, X and SWR at each frequency, and gain and F/B unless with_gain is false.",
             "inputSchema": { "type": "object", "properties": {
@@ -765,7 +842,7 @@ fn tools() -> Value {
         },
         {
             "name": "report",
-            "description": "Writes the program's PDF antenna report (as Tools → Antenna report in the program): the antenna and its picture, a calculation with its patterns, the resonance finder's results with SWR and impedance plots, and matching networks for the calculated impedance. Calculates and searches for resonances itself; returns the path, the calculation and the resonances found.",
+            "description": "Writes the program's PDF antenna report (as Tools → Antenna report in the program): the antenna and its picture, a calculation with its patterns, the resonance finder's results with SWR and impedance plots, matching networks for the calculated impedance, and RF exposure maps around the antenna. Calculates and searches for resonances itself; returns the path, the calculation and the resonances found.",
             "inputSchema": { "type": "object", "properties": {
                 "path": { "type": "string", "description": "Absolute path of the PDF; default: next to the antenna's file, with its name and .pdf." },
                 "engine": engine_prop(),
@@ -775,6 +852,10 @@ fn tools() -> Value {
                 "res_f_stop_mhz": { "type": "number", "description": "Resonance search stop (default 15% above)." },
                 "res_points": { "type": "integer", "minimum": 5, "maximum": 1001, "description": "Sweep points for the search (default 31)." },
                 "swr_limit": { "type": "number", "description": "SWR for the bandwidth figures (default 2)." },
+                "exposure_average_power_w": { "type": "number", "description": "Average power into the antenna for the RF exposure section (default 100 W)." },
+                "exposure_standard": { "type": "string", "enum": ["icnirp1998", "icnirp2020", "fcc"], "description": "Exposure standard (default icnirp1998)." },
+                "exposure_height_m": { "type": "number", "description": "Height of the level exposure plane (default 2 m)." },
+                "exposure_reach_m": { "type": "number", "description": "How far the exposure planes reach past the antenna (default 10 m)." },
             } },
             "annotations": { "destructiveHint": true },
         },
@@ -869,6 +950,14 @@ mod tests {
         assert_eq!(rep["saved"], json!(dir.join("no_res.pdf")));
         assert!(rep.get("resonances").is_none());
         let _ = std::fs::remove_dir_all(&dir);
+
+        // RF exposure next to and away from the dipole (it lies along y at z = 0)
+        let r = tool(&mut s, "rf_exposure", json!({ "points": [[0.5, 0.0, 0.0], [20.0, 0.0, 0.0]], "average_power_w": 100, "engine": "mininec" }));
+        let pts = r["points"].as_array().unwrap();
+        let near = pts[0]["percent_of_limit"].as_f64().unwrap();
+        let far = pts[1]["percent_of_limit"].as_f64().unwrap();
+        assert!(near > 100.0 && far < 100.0 && near > far, "{r}");
+        assert_eq!(r["limits"]["e_v_per_m"].as_f64(), Some(28.0));
 
         // add a wire, delete it again
         tool(&mut s, "set_wire", json!({ "index": 1, "wire": { "p1": [1, -5, 0], "p2": [1, 5, 0] } }));

@@ -504,6 +504,8 @@ struct Report {
     /// every source's impedance, in the order of the EX cards
     z_all: Vec<num_complex::Complex64>,
     seg_cur: Vec<f64>,
+    /// the same currents as complex numbers (real, imaginary: the seventh and eighth fields)
+    seg_cur_c: Vec<num_complex::Complex64>,
     /// (theta, phi, vert dB, hor dB, total dB)
     pattern: Vec<[f64; 5]>,
     /// POWER BUDGET: input power and the losses (W)
@@ -545,8 +547,10 @@ fn parse(text: &str) -> Result<Report, String> {
         .into_iter()
         .chain(table(text, "- Wire Currents -", 5))
         .next()
-        .map(|rows| rows.iter().map(|r| numbers(r)).filter(|v| v.len() >= 10).map(|v| v[8]).collect())
+        .map(|rows| rows.iter().map(|r| numbers(r)).filter(|v| v.len() >= 10).collect::<Vec<_>>())
         .unwrap_or_default();
+    let seg_cur_c = seg_cur.iter().map(|v| num_complex::Complex64::new(v[6], v[7])).collect();
+    let seg_cur = seg_cur.iter().map(|v| v[8]).collect();
     let mut pattern = Vec::new();
     for block in table(text, "RADIATION PATTERNS", 4) {
         for r in block {
@@ -557,7 +561,7 @@ fn parse(text: &str) -> Result<Report, String> {
         }
     }
     let (p_in, losses) = power_budget(text);
-    Ok(Report { z, z_all, seg_cur, pattern, p_in, losses })
+    Ok(Report { z, z_all, seg_cur, seg_cur_c, pattern, p_in, losses })
 }
 
 fn lin(db: f64) -> f64 {
@@ -727,15 +731,19 @@ pub fn calculate(ant: &Antenna, prog: &crate::progress::Progress) -> Result<Full
     res.t_total_ms = t.elapsed().as_secs_f64() * 1e3;
     // segment currents for the 3D view
     let mut seg_currents = Vec::new();
+    let mut centres = Vec::new();
     let mut k = 0;
     for p in &lay.pieces {
         for s in 0..p.nseg {
             let a = lerp(p.a, p.b, s as f64 / p.nseg as f64);
             let b = lerp(p.a, p.b, (s + 1) as f64 / p.nseg as f64);
             seg_currents.push((a, b, rep.seg_cur.get(k).cloned().unwrap_or(0.0)));
+            let r = ant.wires.get(p.wire).map_or(1e-3, |w| w.r);
+            centres.push((a, b, rep.seg_cur_c.get(k).cloned().unwrap_or_default(), r));
             k += 1;
         }
     }
+    let near = crate::nearfield::Currents { filaments: crate::nearfield::from_centres(&centres), p_in: rep.p_in, plates_left_out: !ant.plates.is_empty() };
     let mesh = mom::build_mesh(ant, ant.lambda())?;
     let mut warnings = mesh.warnings.clone();
     if ant.lines.iter().any(|t| t.loss_db > 0.0) {
@@ -763,7 +771,7 @@ pub fn calculate(ant: &Antenna, prog: &crate::progress::Progress) -> Result<Full
     };
     let power = mom::PowerBudget::new(ant, &patterns, rep.p_in, &rep.losses, false);
     res.eff = power.radiated;
-    Ok(FullResult { result: res.clone(), patterns, mesh, currents: vec![], warnings, seg_currents: Some(seg_currents), power })
+    Ok(FullResult { result: res.clone(), patterns, mesh, currents: vec![], warnings, seg_currents: Some(seg_currents), power, near })
 }
 
 #[cfg(test)]
@@ -874,5 +882,89 @@ mod sweep_test {
             let r = p.install(|| mom::sweep(&a, 13.8, 14.5, 24, true)).unwrap();
             println!("NEC-2 sweep 24 freqs on {n} threads: {:.0} ms, first Z {:.1}", r.t_ms, r.points[0].z);
         }
+    }
+}
+
+#[cfg(test)]
+mod near_tests {
+    use super::*;
+    use crate::model::GroundKind;
+
+    /// nec2c's own near fields (NE/NH cards) at points along a line, as |x|,|y|,|z| peak.
+    fn nec_near(ant: &Antenna, p0: [f64; 3], d: [f64; 3], n: usize) -> (Vec<[f64; 3]>, Vec<[f64; 3]>) {
+        let lay = layout(ant, ant.lambda());
+        // one NE and one NH card per point (a card's counts make a grid, not a slanted line)
+        let mut cards = vec![];
+        for i in 0..n {
+            let p = [p0[0] + d[0] * i as f64, p0[1] + d[1] * i as f64, p0[2] + d[2] * i as f64];
+            cards.push(format!("NE 0 1 1 1 {} {} {} 0 0 0", num(p[0]), num(p[1]), num(p[2])));
+            cards.push(format!("NH 0 1 1 1 {} {} {} 0 0 0", num(p[0]), num(p[1]), num(p[2])));
+        }
+        // NE/NH run with the cards after them, so finish with an RP
+        cards.push("RP 0 1 1 1000 90 0 0 0".into());
+        let out = run(&deck(ant, &lay, ant.freq_mhz, &cards).unwrap(), Engine::Nec2).unwrap();
+        let grab = |head: &str| -> Vec<[f64; 3]> {
+            table(&out, head, 3).into_iter().flatten().map(|r| numbers(r)).filter(|v| v.len() >= 9).map(|v| [v[3], v[5], v[7]]).collect()
+        };
+        (grab("NEAR ELECTRIC FIELDS"), grab("NEAR MAGNETIC FIELDS"))
+    }
+
+    fn compare(name: &str, ant: &Antenna, p0: [f64; 3], d: [f64; 3], n: usize, tol: f64) {
+        let (ne, nh) = nec_near(ant, p0, d, n);
+        assert_eq!(ne.len(), n, "{name}: NEC gave {} E points", ne.len());
+        let pts: Vec<[f64; 3]> = (0..n).map(|i| [p0[0] + d[0] * i as f64, p0[1] + d[1] * i as f64, p0[2] + d[2] * i as f64]).collect();
+        let mut nec_ant = ant.clone();
+        nec_ant.engine = Engine::Nec2;
+        let mut wm_ant = ant.clone();
+        wm_ant.engine = Engine::Wiremom;
+        let mut mn_ant = ant.clone();
+        mn_ant.engine = Engine::Mininec;
+        for (label, a) in [("nec2", &nec_ant), ("wiremom", &wm_ant), ("mininec", &mn_ant)] {
+            let c = mom::calculate(a).unwrap();
+            // NEC's deck drives 1 V; scale ours to the same input power
+            let nec_pin = calculate(&nec_ant, &crate::progress::Progress::default()).unwrap().near.p_in;
+            let s = (nec_pin / c.near.p_in).sqrt();
+            let f = crate::nearfield::fields(&c.near, a, a.freq_mhz, &pts);
+            let mut worst: f64 = 0.0;
+            for (i, (e, h)) in f.iter().enumerate() {
+                let em = (e.iter().map(|x| x.norm_sqr()).sum::<f64>()).sqrt() * s;
+                let hm = (h.iter().map(|x| x.norm_sqr()).sum::<f64>()).sqrt() * s;
+                let en = (ne[i].iter().map(|x| x * x).sum::<f64>()).sqrt();
+                let hn = (nh[i].iter().map(|x| x * x).sum::<f64>()).sqrt();
+                let de = 20.0 * (em / en).log10();
+                let dh = 20.0 * (hm / hn).log10();
+                println!("{name} {label} {:?}: E {em:.4e} vs {en:.4e} ({de:+.2} dB)  H {hm:.4e} vs {hn:.4e} ({dh:+.2} dB)", pts[i]);
+                worst = worst.max(de.abs()).max(dh.abs());
+            }
+            // NEC-2's own currents test the field sum itself; the other engines' currents
+            // differ a little from NEC-2's (thick elements, segmentation)
+            let tol = if label == "nec2" { tol } else { tol.max(1.2) };
+            assert!(worst < tol, "{name} {label}: worst {worst:.2} dB");
+        }
+    }
+
+    #[test]
+    fn near_fields_match_nec2() {
+        if !available() {
+            return;
+        }
+        // free-space dipole along y: points off its middle and past its end
+        let a = Antenna::example(0);
+        compare("dipole broadside", &a, [1.0, 0.0, 0.0], [1.0, 0.0, 0.0], 5, 0.1);
+        compare("dipole end", &a, [0.5, 6.0, 0.5], [0.0, 1.0, 0.0], 5, 0.1);
+        // Yagi over perfect ground, at head height around it
+        let mut y = Antenna::example(2);
+        y.ground.kind = GroundKind::Perfect;
+        compare("yagi perfect", &y, [-6.0, -4.0, 2.0], [2.5, 2.0, 0.0], 6, 0.1);
+    }
+
+    #[test]
+    fn near_fields_real_ground_vs_sommerfeld() {
+        if !available() {
+            return;
+        }
+        // how far the reflection coefficient approximation is from NEC-2's Sommerfeld
+        let y = Antenna::example(2);
+        compare("yagi real", &y, [-6.0, -4.0, 2.0], [2.5, 2.0, 0.0], 6, 0.6);
     }
 }

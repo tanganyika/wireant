@@ -9,6 +9,8 @@ mod model;
 mod mom;
 mod nec;
 mod nec_file;
+mod nearfield;
+mod exposure;
 mod wm;
 mod ez;
 mod file_name;

@@ -106,6 +106,7 @@ pub struct App {
     /// antenna before each drawing change (Ctrl+Z in the View)
     undo: Vec<Antenna>,
     tools: crate::tools::ToolsState,
+    exposure: crate::exposure::ExposureState,
     edit_anchor: u8,
     edit_move_joined: bool,
     az_cursor: Option<f64>,
@@ -243,6 +244,7 @@ impl App {
             wire_edit: None,
             undo: Vec::new(),
             tools: crate::tools::ToolsState::default(),
+            exposure: crate::exposure::ExposureState::default(),
             edit_anchor: 0,
             edit_move_joined: true,
             az_cursor: None,
@@ -274,6 +276,16 @@ impl App {
         }
         // test hook: WIREANT_ABOUT=1 starts with Help → About open
         app.about_open = std::env::var_os("WIREANT_ABOUT").is_some();
+        // test hook: WIREANT_EXPOSURE=level|x|y starts with Tools → RF exposure open on that plane
+        if let Ok(p) = std::env::var("WIREANT_EXPOSURE") {
+            app.exposure.open = true;
+            app.exposure.auto = true;
+            app.exposure.setup.plane = match p.as_str() {
+                "x" => crate::exposure::Plane::AlongX,
+                "y" => crate::exposure::Plane::AlongY,
+                _ => crate::exposure::Plane::Horizontal,
+            };
+        }
         // test hook: WIREANT_HELP=<page> starts with that help page open (docs/help/<page>.md)
         if let Ok(id) = std::env::var("WIREANT_HELP") {
             app.help.show(&id);
@@ -691,10 +703,14 @@ impl App {
                     self.tools.match_open = true;
                     ui.close();
                 }
+                if ui.button("RF exposure…").on_hover_text("Field strength around the antenna against exposure limits, from the last calculation").clicked() {
+                    self.exposure.open = true;
+                    ui.close();
+                }
                 ui.separator();
                 if ui
                     .button("Antenna report (PDF)…")
-                    .on_hover_text("The antenna, the Calculate tab's results and patterns, and the resonance finder's and match calculator's results")
+                    .on_hover_text("The antenna, the Calculate tab's results and patterns, the resonance finder's and match calculator's results, and RF exposure maps")
                     .clicked()
                 {
                     ui.close();
@@ -751,7 +767,7 @@ impl App {
         }
         let Some(p) = d.save_file() else { return };
         let p = if p.extension().is_none() { p.with_extension("pdf") } else { p };
-        let bytes = crate::report::build(&self.ant, self.path.as_deref(), self.calc.as_ref(), &self.history, &self.tools, &self.view);
+        let bytes = crate::report::build(&self.ant, self.path.as_deref(), self.calc.as_ref(), &self.history, &self.tools, &self.view, &self.exposure);
         match std::fs::write(&p, bytes) {
             Ok(()) => {
                 self.remember_dir(&p);
@@ -994,6 +1010,7 @@ impl App {
         let searching = matches!(self.job, Some(Job::Resonance(..))).then(|| self.prog.as_ref());
         let mut acts = crate::tools::resonance_window(ctx, &mut self.tools, self.ant.z0, busy, searching);
         acts.extend(crate::tools::match_window(ctx, &mut self.tools, self.calc.is_some()));
+        crate::exposure::window(ctx, &mut self.exposure, &self.ant, self.calc.as_ref());
         for a in acts {
             match a {
                 crate::tools::ToolAction::FindResonances => {

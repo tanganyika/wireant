@@ -893,6 +893,8 @@ pub struct FullResult {
     pub warnings: Vec<String>,
     /// Per-segment current magnitude (start, end, |I|) when an external engine solved it.
     pub seg_currents: Option<Vec<(V3, V3, f64)>>,
+    /// The currents as filaments, for near fields.
+    pub near: crate::nearfield::Currents,
     /// Where the input power goes.
     pub power: PowerBudget,
 }
@@ -1213,7 +1215,14 @@ fn calculate_with(ant: &Antenna, prog: &Progress) -> Result<FullResult, String> 
     // MININEC finds the currents over perfect ground
     let power = PowerBudget::new(ant, &patterns, sol.p_in, &losses, true);
     res.eff = power.radiated;
-    Ok(FullResult { result: res, patterns, currents: sol.currents, mesh, warnings, seg_currents: None, power })
+    let mut half = vec![[C::new(0.0, 0.0); 2]; mesh.segs.len()];
+    for (b, i) in mesh.bases.iter().zip(&sol.currents) {
+        for p in &b.parts {
+            half[p.seg][p.half as usize] += *i * p.dir;
+        }
+    }
+    let near = crate::nearfield::Currents { filaments: crate::nearfield::from_halves(&mesh.segs, &half), p_in: sol.p_in, plates_left_out: !ant.plates.is_empty() };
+    Ok(FullResult { result: res, patterns, currents: sol.currents, mesh, warnings, seg_currents: None, power, near })
 }
 
 /// Pattern cuts through the maximum and the 3D grid; adds the time taken to `res`.

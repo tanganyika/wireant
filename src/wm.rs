@@ -353,10 +353,26 @@ pub fn calculate(ant: &Antenna, prog: &crate::progress::Progress) -> Result<Full
     }
     let power = mom::PowerBudget::new(ant, &patterns, ws.input_power(), &losses, uses_ground_stand_in(ant));
     res.eff = power.radiated;
-    Ok(FullResult { result: res, patterns, mesh, currents: vec![], warnings, seg_currents: Some(seg_currents), power })
+    let near = crate::nearfield::Currents { filaments: near_filaments(&ws), p_in: ws.input_power(), plates_left_out: !ant.plates.is_empty() };
+    Ok(FullResult { result: res, patterns, mesh, currents: vec![], warnings, seg_currents: Some(seg_currents), power, near })
 }
 
 /// The segment layout for the 3D view, from wiremom's mesh, one entry per app wire.
+/// wiremom's currents run linearly along each segment: I = rise·u/L + fall·(1 − u/L).
+fn near_filaments(ws: &wiremom::Solution) -> Vec<crate::nearfield::Filament> {
+    use wiremom::mesh::{FALL, RISE};
+    let m = &ws.mesh;
+    let mut amp = vec![[num_complex::Complex64::new(0.0, 0.0); 2]; m.n_segments()];
+    for (b, &i) in m.basis.iter().zip(&ws.currents) {
+        for h in &b.halves {
+            amp[h.seg][h.shape] += i * h.c;
+        }
+    }
+    (0..m.n_segments())
+        .map(|s| crate::nearfield::Filament { a: m.p0[s], b: m.p1[s], ia: amp[s][FALL], ib: amp[s][RISE], r: m.radius[s] })
+        .collect()
+}
+
 fn view_mesh(ant: &Antenna, ws: &wiremom::Solution, app_wire: &[usize]) -> mom::Mesh {
     let m = &ws.mesh;
     let mut segs = vec![];

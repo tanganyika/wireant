@@ -1,10 +1,12 @@
 //! The antenna report (Tools → Antenna report): the antenna, the Calculate tab's
 //! results and patterns, the resonance finder's and the match calculator's
-//! results, as a PDF.
+//! results, and RF exposure maps, as a PDF.
 
 use crate::model::*;
 use crate::mom::{CalcResult, FullResult, Gain};
+use crate::nearfield;
 use crate::pdf::{Font, PAGE_H, PAGE_W, Pdf, text_width, wrap};
+use crate::exposure::{self as ex_mod, ExposureState};
 use crate::tools::{self, ToolsState};
 use num_complex::Complex64 as C;
 use std::path::Path;
@@ -569,7 +571,7 @@ fn antenna_picture(pdf: &mut Pdf, x: f64, y: f64, w: f64, h: f64, ant: &Antenna,
     }
 }
 
-pub fn build(ant: &Antenna, source: Option<&Path>, calc: Option<&FullResult>, history: &[CalcResult], st: &ToolsState, view: &crate::plots::ViewState) -> Vec<u8> {
+pub fn build(ant: &Antenna, source: Option<&Path>, calc: Option<&FullResult>, history: &[CalcResult], st: &ToolsState, view: &crate::plots::ViewState, ex: &ExposureState) -> Vec<u8> {
     let stamp = now_utc();
     let mut d = Doc { pdf: Pdf::new(), y: M, title: format!("Antenna report: {}", ant.name), stamp: stamp.clone() };
 
@@ -842,9 +844,161 @@ pub fn build(ant: &Antenna, source: Option<&Path>, calc: Option<&FullResult>, hi
         Some((zl, f_mhz, r0, from)) => matching(&mut d, st, zl, f_mhz, r0, from),
     }
 
+    // ---- RF exposure
+    d.heading("RF exposure");
+    match calc {
+        None => d.para("Calculate the antenna to include the field strength around it.", 9.5, GREY),
+        Some(c) => exposure(&mut d, ant, c, ex),
+    }
+
     d.footer();
     let title = d.title.clone();
     d.pdf.bytes(&title)
+}
+
+// ------------------------------------------------------------------ RF exposure
+
+/// The exposure section: the power and standard from Tools → RF exposure, then a level
+/// and an upright map around the antenna.
+fn exposure(d: &mut Doc, ant: &Antenna, c: &FullResult, ex: &ExposureState) {
+    let f_mhz = c.result.freq_mhz;
+    let avg = ex.avg_w();
+    let Some((el, hl)) = ex.standard.limits(f_mhz) else {
+        d.para(&format!("{} has no limits at {:.3} MHz.", ex.standard.label(), f_mhz), 9.5, INK);
+        return;
+    };
+    d.pairs(&[
+        (
+            "Power".into(),
+            format!(
+                "{} W PEP, {}, {:.0} % of the time on air: {:.1} W average into the antenna",
+                f(ex.pep_w, 0),
+                ex_mod::MODES[ex.mode].0,
+                ex.on_air * 100.0,
+                avg
+            ),
+        ),
+        ("Standard".into(), format!("{}: E {:.1} V/m, H {:.4} A/m at {:.3} MHz", ex.standard.label(), el, hl, f_mhz)),
+    ]);
+    for setup in ex_mod::report_planes(ex) {
+        // the window's own map when it is for this calculation and plane
+        let computed;
+        let map = match &ex.map {
+            Some(m) if m.setup == setup && (m.freq_mhz - f_mhz).abs() < 1e-9 => m,
+            _ => match ex_mod::compute(&c.near, ant, f_mhz, &setup) {
+                Ok(m) => {
+                    computed = m;
+                    &computed
+                }
+                Err(e) => {
+                    d.para(&e, 9.5, GREY);
+                    return;
+                }
+            },
+        };
+        let Some(sum) = ex_mod::summarise(map, avg, ex.standard) else { return };
+        d.need(330.0);
+        d.sub(&setup.plane.title(&setup, ant.ground.kind == GroundKind::Free));
+        match sum.over_to {
+            Some(dist) => d.para(&format!("Over the limit on this plane: up to {dist:.1} m from the antenna."), 9.5, [0.75, 0.1, 0.1]),
+            None => d.para(&format!("Within the limit everywhere on this plane: at most {} of it.", ex_mod::pct(sum.max_ratio)), 9.5, [0.1, 0.45, 0.15]),
+        }
+        if map.dist[sum.at] >= ex_mod::TOUCH_M {
+            let (e1, h1) = map.eh[sum.at];
+            let s = avg.max(0.0).sqrt();
+            d.para(
+                &format!(
+                    "Strongest point {} m or more from the wires: {} of the limit (E {:.1} V/m, H {:.3} A/m), {:.1} m from the nearest wire.",
+                    ex_mod::TOUCH_M,
+                    ex_mod::pct(sum.max_ratio),
+                    e1 * s,
+                    h1 * s,
+                    map.dist[sum.at]
+                ),
+                9.0,
+                INK,
+            );
+        }
+        d.y += 4.0;
+        let h = exposure_map(&mut d.pdf, M, d.y, PAGE_W - 2.0 * M, 250.0, map, avg, (el, hl));
+        d.y += h + 8.0;
+    }
+    if c.near.plates_left_out {
+        d.para("The plates' currents aren't included in these fields.", 9.0, [0.6, 0.4, 0.0]);
+    }
+    d.para(ex_mod::method_note(ant.ground.kind), 8.0, GREY);
+}
+
+/// Draws an exposure map in the box (x, y, w, at most h) with axis labels and a legend;
+/// returns the height used.
+#[allow(clippy::too_many_arguments)]
+fn exposure_map(pdf: &mut Pdf, x: f64, y: f64, w: f64, h: f64, map: &ex_mod::Map, avg_w: f64, lim: (f64, f64)) -> f64 {
+    let (du, dv) = (map.u.1 - map.u.0, map.v.1 - map.v.0);
+    let left = 44.0;
+    let k = ((w - left - 10.0) / du).min(h / dv);
+    let (mw, mh) = (du * k, dv * k);
+    let x0 = x + left + (w - left - 10.0 - mw) / 2.0;
+    let to = |u: f64, v: f64| (x0 + (u - map.u.0) * k, y + mh - (v - map.v.0) * k);
+    let step_u = du / (map.nu - 1).max(1) as f64;
+    let step_v = dv / (map.nv - 1).max(1) as f64;
+    let s = avg_w.max(0.0).sqrt();
+    // colours in 32 steps, and runs of a colour drawn as one rectangle
+    let band = |r: f64| -> [u8; 3] {
+        if r >= 1.0 {
+            return ex_mod::ratio_rgb(r);
+        }
+        let t = ((r.max(1e-2).log10() + 2.0) / 2.0 * 32.0).floor() / 32.0;
+        ex_mod::ratio_rgb(10f64.powf(t * 2.0 - 2.0))
+    };
+    let rgb = |c: [u8; 3]| [c[0] as f64 / 255.0, c[1] as f64 / 255.0, c[2] as f64 / 255.0];
+    for j in 0..map.nv {
+        let v = map.v.0 + j as f64 * step_v;
+        let v_lo = (v - step_v / 2.0).max(map.v.0);
+        let v_hi = (v + step_v / 2.0).min(map.v.1);
+        let mut i = 0;
+        while i < map.nu {
+            let (e, hh) = map.eh[j * map.nu + i];
+            let c = band(nearfield::ratio(e * s, hh * s, lim));
+            let mut i2 = i + 1;
+            while i2 < map.nu {
+                let (e2, h2) = map.eh[j * map.nu + i2];
+                if band(nearfield::ratio(e2 * s, h2 * s, lim)) != c {
+                    break;
+                }
+                i2 += 1;
+            }
+            let u_lo = (map.u.0 + i as f64 * step_u - step_u / 2.0).max(map.u.0);
+            let u_hi = (map.u.0 + (i2 - 1) as f64 * step_u + step_u / 2.0).min(map.u.1);
+            let (ax, ay) = to(u_lo, v_hi);
+            let (bx, by) = to(u_hi, v_lo);
+            // a hair wider and taller so no seams show between the rectangles
+            pdf.fill_rect(ax, ay, bx - ax + 0.3, by - ay + 0.3, rgb(c));
+            i = i2;
+        }
+    }
+    let (ax, ay) = to(map.u.0, map.v.1);
+    let (bx, by) = to(map.u.1, map.v.0);
+    pdf.polyline(&[(ax, ay), (bx, ay), (bx, by), (ax, by), (ax, ay)], 0.5, LIGHT, false);
+    if map.ground && map.setup.plane != ex_mod::Plane::Horizontal {
+        pdf.line(to(map.u.0, 0.0), to(map.u.1, 0.0), 1.2, [0.59, 0.47, 0.27]);
+    }
+    for (a, b) in &map.wires {
+        pdf.line(to(a[0], a[1]), to(b[0], b[1]), 1.0, [0.12, 0.2, 0.43]);
+    }
+    let (un, vn) = map.setup.plane.axes();
+    pdf.text(ax, by + 10.0, 7.5, Font::Regular, GREY, &format!("{un} {:.1} m", map.u.0));
+    pdf.text_right(bx, by + 10.0, 7.5, Font::Regular, GREY, &format!("{:.1} m", map.u.1));
+    pdf.text_right(ax - 3.0, by, 7.5, Font::Regular, GREY, &format!("{vn} {:.1} m", map.v.0));
+    pdf.text_right(ax - 3.0, ay + 7.0, 7.5, Font::Regular, GREY, &format!("{:.1} m", map.v.1));
+    // legend
+    let ly = by + 24.0;
+    let mut lx = x;
+    for (r, t) in ex_mod::LEGEND {
+        pdf.fill_rect(lx, ly - 7.0, 12.0, 8.0, rgb(ex_mod::ratio_rgb(r)));
+        pdf.text(lx + 15.0, ly, 7.5, Font::Regular, INK, t);
+        lx += 24.0 + text_width(t, 7.5, Font::Regular);
+    }
+    ly - y + 6.0
 }
 
 // ------------------------------------------------------------------ engine comparison
@@ -1140,12 +1294,12 @@ mod tests {
     #[test]
     fn report_with_and_without_results() {
         let a = Antenna::example(2);
-        let empty = build(&a, None, None, &[], &ToolsState::default(), &crate::plots::ViewState::default());
+        let empty = build(&a, None, None, &[], &ToolsState::default(), &crate::plots::ViewState::default(), &ExposureState::default());
         assert!(empty.starts_with(b"%PDF"));
         let calc = crate::mom::calculate(&a).unwrap();
         let mut st = ToolsState::default();
         st.report = Some(tools::find(&a, 13.5, 14.8, 31, 2.0).unwrap());
-        let full = build(&a, Some(Path::new("/tmp/x.maa")), Some(&calc), &[calc.result.clone()], &st, &crate::plots::ViewState::default());
+        let full = build(&a, Some(Path::new("/tmp/x.maa")), Some(&calc), &[calc.result.clone()], &st, &crate::plots::ViewState::default(), &ExposureState::default());
         let s: String = full.iter().map(|&c| if c < 128 { c as char } else { '#' }).collect();
         assert!(s.contains("/Count ") && full.len() > empty.len());
         let dir = std::env::temp_dir().join("wireant-report-test.pdf");
@@ -1168,7 +1322,7 @@ mod tests {
         ant.z0 = 75.0;
         let mut st = ToolsState::default();
         st.for_antenna(&ant);
-        let pdf = build(&ant, None, None, &[], &st, &crate::plots::ViewState::default());
+        let pdf = build(&ant, None, None, &[], &st, &crate::plots::ViewState::default(), &ExposureState::default());
         let text = String::from_utf8_lossy(&pdf);
         assert!(text.contains("Nothing to match yet") && !text.contains("Series section"), "no matching without an impedance");
         // series section with the feeder's own impedance gives nothing, not hundreds
@@ -1221,10 +1375,30 @@ mod blank_tests {
             assert!(tools::find(&b, 14.0, 14.3, 5, 2.0).is_err(), "{e:?}");
         }
         // report and the file formats cope
-        assert!(build(&a, None, None, &[], &ToolsState::default(), &crate::plots::ViewState::default()).starts_with(b"%PDF"));
+        assert!(build(&a, None, None, &[], &ToolsState::default(), &crate::plots::ViewState::default(), &ExposureState::default()).starts_with(b"%PDF"));
         let _ = crate::maa::write(&a);
         let _ = crate::nec_file::write(&a);
         let _ = crate::ez::write(&a);
     }
 }
 
+
+#[cfg(test)]
+mod exposure_tests {
+    use super::*;
+
+    /// The report ends with the exposure maps; WIREANT_REPORT_PDF keeps a copy to look at.
+    #[test]
+    fn report_has_exposure_maps() {
+        let ant = Antenna::example(2);
+        let c = crate::mom::calculate(&ant).unwrap();
+        let ex = ExposureState::default();
+        let bytes = build(&ant, None, Some(&c), &[c.result.clone()], &ToolsState::default(), &crate::plots::ViewState::default(), &ex);
+        assert!(bytes.starts_with(b"%PDF"));
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(text.contains("RF exposure"), "no exposure heading");
+        if let Some(p) = std::env::var_os("WIREANT_REPORT_PDF") {
+            std::fs::write(p, &bytes).unwrap();
+        }
+    }
+}

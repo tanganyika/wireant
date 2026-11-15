@@ -1,7 +1,7 @@
 # Tools
 
-The **Tools** menu holds the resonance finder, the match calculator, the PDF report and, with an
-external NEC program set, the engine comparison report.
+The **Tools** menu holds the resonance finder, the match calculator, the RF exposure check, the
+PDF report and, with an external NEC program set, the engine comparison report.
 
 ## Resonance finder
 
@@ -65,6 +65,36 @@ transmitter side of the match, and **↶ Undo** on the View tab (Ctrl+Z) takes i
 
 L networks and lines need the wiremom or NEC-2 engine. The parts are ideal (no loss).
 
+## RF exposure
+
+**Tools → RF exposure…** maps the electric (E) and magnetic (H) field strength around the
+antenna and compares it with the reference levels of an exposure standard, to help with the RF
+exposure assessments licence conditions ask for. It works from the last **Calculate**, at its
+frequency.
+
+- **PEP into the antenna**, **Mode** and **On air** give the average power the limits apply to.
+  The mode is the share of the PEP a transmission averages to (SSB voice about 20 %, CW 40 %,
+  FT8 and FM 100 %); on air is the share of the averaging time spent transmitting (6 minutes
+  for ICNIRP 1998, 30 minutes for ICNIRP 2020 and the FCC's general population). Leave out
+  feed-line loss to stay on the safe side.
+- **Standard**: ICNIRP 1998 general public (used in the EU and by Ofcom in the UK), ICNIRP 2020
+  general public, or the FCC's general population limits. The limits at the frequency are shown;
+  check them against your regulator's own figures.
+- **Plane**: a level plane at a height (2 m is about head height), or an upright plane through the
+  middle of the antenna along x or y. **Reaching** sets how far it goes past the antenna.
+
+Press **Calculate fields**. Each point is coloured by its share of the limit: the larger of
+(E / E limit)² and (H / H limit)², which compares power densities, so close to the antenna, where
+E and H are no longer in step, both count. Red is over the limit. The note above the map gives the
+farthest distance from the antenna at which the limit is reached, and the strongest point at least
+0.5 m from the wires; hover over the map to read any point.
+
+The fields come from the calculated currents, so they suit every engine. In free space and over
+perfect ground they agree with NEC-2's own near fields to within 0.1 dB. Over real ground the
+reflection is approximated with plane-wave reflection coefficients, which is within about 1 dB of
+NEC-2's full ground calculation a few metres up and rougher right at the ground. Plates aren't
+included yet.
+
 ## Antenna report (PDF)
 
 **Tools → Antenna report (PDF)…** writes an A4 report containing:
@@ -75,6 +105,9 @@ L networks and lines need the wiremom or NEC-2 engine. The parts are ideal (no l
 - The latest calculation, its power budget and the results history.
 - The horizontal and vertical patterns.
 - The resonance finder's and match calculator's current results.
+- RF exposure maps: a level plane and an upright plane around the antenna, with the power,
+  standard, height and reach set in Tools → RF exposure (100 W average, ICNIRP 1998, 2 m and
+  10 m if you haven't changed them).
 
 The save dialog suggests the antenna file's name ending in `.pdf`. Once saved, the report opens in
 your PDF viewer.
