@@ -28,13 +28,17 @@ pub struct Settings {
     pub nec_stdin: bool,
     /// How many copies may run at once in sweeps and the optimizer (0 = one per processor thread).
     pub nec_jobs: usize,
+    /// The station's Maidenhead locator, for the great circle map.
+    pub locator: String,
+    /// Compass bearing of the model's +x axis on the great circle map.
+    pub x_bearing: f64,
 }
 
 pub const DEFAULT_NEC_ARGS: &str = "{in} {out}";
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { last_dir: None, last_file: None, open_last: false, calc_on_open: false, default_engine: None, nec_path: String::new(), nec_args: DEFAULT_NEC_ARGS.into(), nec_stdin: false, nec_jobs: 0 }
+        Settings { last_dir: None, last_file: None, open_last: false, calc_on_open: false, default_engine: None, nec_path: String::new(), nec_args: DEFAULT_NEC_ARGS.into(), nec_stdin: false, nec_jobs: 0, locator: String::new(), x_bearing: 0.0 }
     }
 }
 
@@ -72,6 +76,8 @@ impl Settings {
                 "nec_args" => s.nec_args = v.trim().to_string(),
                 "nec_stdin" => s.nec_stdin = v.trim() == "1" || v.trim().eq_ignore_ascii_case("true"),
                 "nec_jobs" => s.nec_jobs = v.trim().parse().unwrap_or(0),
+                "locator" => s.locator = v.trim().to_string(),
+                "x_bearing" => s.x_bearing = v.trim().parse().unwrap_or(0.0),
                 _ => {}
             }
         }
@@ -92,6 +98,12 @@ impl Settings {
             t += &format!("default_engine={}\n", engine_key(e));
         }
         t += &format!("nec_path={}\nnec_args={}\nnec_stdin={}\nnec_jobs={}\n", self.nec_path, self.nec_args, self.nec_stdin as u8, self.nec_jobs);
+        if !self.locator.is_empty() {
+            t += &format!("locator={}\n", self.locator);
+        }
+        if self.x_bearing != 0.0 {
+            t += &format!("x_bearing={}\n", self.x_bearing);
+        }
         t
     }
 
@@ -157,6 +169,8 @@ mod tests {
             nec_args: "-i {in} -o {out}".into(),
             nec_stdin: true,
             nec_jobs: 4,
+            locator: "IO91wm".into(),
+            x_bearing: 112.5,
         };
         assert_eq!(Settings::parse(&s.format()), s);
         // the old file held only last_dir

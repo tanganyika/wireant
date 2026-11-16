@@ -13,6 +13,7 @@ mod nearfield;
 mod exposure;
 mod exposure3d;
 mod stack;
+mod greatcircle;
 mod wm;
 mod ez;
 mod file_name;

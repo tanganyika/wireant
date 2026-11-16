@@ -1,7 +1,7 @@
 # Tools
 
 The **Tools** menu holds the resonance finder, the match calculator, the stack / bay array
-builder, the RF exposure check, the PDF report and, with an external NEC program set, the engine comparison report.
+builder, the great circle map, the RF exposure check, the PDF report and, with an external NEC program set, the engine comparison report.
 
 ## Resonance finder
 
@@ -84,6 +84,24 @@ a vertical) 0.75 λ is used. **Suggest spacings** works them out again.
 **Make the array** puts it in place of the antenna; **Undo** brings the single antenna back. Two
 antennas give close to 3 dB more gain and half the beamwidth in the direction they are spaced; four
 in a square, close to 6 dB.
+
+## Great circle map
+
+**Tools → Great circle map…** lays the antenna's horizontal pattern from the last **Calculate**
+over a world map centred on your station, so you can see where the beam lands. The map is
+azimuthal equidistant: every straight line from the centre is a great circle path, the rings are
+5000 km apart, and the rim is the far side of the world.
+
+- **Locator**: your Maidenhead locator (4, 6 or 8 characters, e.g. IO91wm). It is remembered.
+- **+x axis points to**: the compass bearing of the model's +x axis. Drag the **N** arrow on the
+  top view to point at North instead, or click a place on the map to turn the antenna so its
+  beam points there.
+- **Pattern size** scales the pattern on the map.
+
+The pattern is the azimuth cut at the elevation the Calculate tab uses (normally the elevation of
+the maximum). The solid blue line is the beam's short path and the dashed line its long path.
+Move the pointer over the map to read the locator, bearing and distance there and the antenna's
+gain in that direction. Coastlines: Natural Earth 1:110m (public domain).
 
 ## RF exposure
 

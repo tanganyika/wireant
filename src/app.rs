@@ -108,6 +108,7 @@ pub struct App {
     tools: crate::tools::ToolsState,
     exposure: crate::exposure::ExposureState,
     stack: crate::stack::StackState,
+    great_circle: crate::greatcircle::GreatCircleState,
     edit_anchor: u8,
     edit_move_joined: bool,
     az_cursor: Option<f64>,
@@ -249,6 +250,7 @@ impl App {
             tools: crate::tools::ToolsState::default(),
             exposure: crate::exposure::ExposureState::default(),
             stack: crate::stack::StackState::default(),
+            great_circle: crate::greatcircle::GreatCircleState::default(),
             edit_anchor: 0,
             edit_move_joined: true,
             az_cursor: None,
@@ -283,6 +285,8 @@ impl App {
         app.about_open = std::env::var_os("WIREANT_ABOUT").is_some();
         // test hook: WIREANT_STACK=1 starts with Tools → Stack / bay array open
         app.stack.open = std::env::var_os("WIREANT_STACK").is_some();
+        // test hook: WIREANT_GREATCIRCLE=1 starts with Tools → Great circle map open
+        app.great_circle.open = std::env::var_os("WIREANT_GREATCIRCLE").is_some();
         // test hook: WIREANT_EXPOSURE=3d|level|x|y starts with Tools → RF exposure open,
         // in 3D or on that plane
         if let Ok(p) = std::env::var("WIREANT_EXPOSURE") {
@@ -722,6 +726,10 @@ impl App {
                     self.stack.open = true;
                     ui.close();
                 }
+                if ui.button("Great circle map…").on_hover_text("The horizontal pattern on a world map centred on your locator, from the last calculation").clicked() {
+                    self.great_circle.open = true;
+                    ui.close();
+                }
                 if ui.button("RF exposure…").on_hover_text("Field strength around the antenna against exposure limits, from the last calculation").clicked() {
                     self.exposure.open = true;
                     ui.close();
@@ -1032,6 +1040,7 @@ impl App {
         let mut acts = crate::tools::resonance_window(ctx, &mut self.tools, self.ant.z0, busy, searching);
         acts.extend(crate::tools::match_window(ctx, &mut self.tools, self.calc.is_some()));
         crate::exposure::window(ctx, &mut self.exposure, &self.ant, self.calc.as_ref());
+        crate::greatcircle::window(ctx, &mut self.great_circle, &self.ant, self.calc.as_ref());
         if let Some(a) = crate::stack::window(ctx, &mut self.stack, &self.ant) {
             if !self.busy() {
                 self.undo.push(self.ant.clone());
