@@ -201,3 +201,35 @@ jobs:
           git add -A
           git -c user.name="github-actions[bot]" -c user.email="41898099+github-actions[bot]@users.noreply.github.com" commit -q -m "APT repository for ${GITHUB_REF_NAME}"
           git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+
+  # Homebrew tap (tanganyika/homebrew-wireant) and winget (a pull request on microsoft/winget-pkgs).
+  # Both need PACKAGES_TOKEN, a classic personal access token with the public_repo scope (the
+  # workflow's own token can't push to other repositories); skipped while it is unset.
+  stores:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [release]
+    runs-on: ubuntu-latest
+    env:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+      - name: Homebrew cask and winget manifests
+        run: |
+          if [ -z "$PACKAGES_TOKEN" ]; then
+            echo "::notice::No PACKAGES_TOKEN secret, so Homebrew and winget were not updated"
+            exit 0
+          fi
+          VER=${GITHUB_REF_NAME#v}
+          DMG=$(sha256sum packages/wireant-$VER-macos-universal.dmg | cut -d' ' -f1)
+          EXE=$(sha256sum packages/wireant-$VER-windows-x64-setup.exe | cut -d' ' -f1)
+          TAP="$RUNNER_TEMP/tap"
+          git clone -q "https://x-access-token:${PACKAGES_TOKEN}@github.com/tanganyika/homebrew-wireant.git" "$TAP"
+          mkdir -p "$TAP/Casks"
+          packaging/homebrew/cask.sh "$VER" "$DMG" > "$TAP/Casks/wireant.rb"
+          git -C "$TAP" add Casks/wireant.rb
+          git -C "$TAP" -c user.name="github-actions[bot]" -c user.email="41898099+github-actions[bot]@users.noreply.github.com" commit -q -m "wireant $VER" && git -C "$TAP" push -q
+          GH_TOKEN="$PACKAGES_TOKEN" packaging/winget/submit.sh "$VER" "$EXE" "$(date -u +%F)"

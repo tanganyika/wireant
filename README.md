@@ -285,6 +285,12 @@ tab: Build → Artifacts):
   Security. Open antenna files with File → Open (double-clicking them in Finder doesn't
   load them yet).
 
+Or install and update it from a package manager:
+
+- **Windows:** `winget install tanganyika.wireant` (once the winget catalogue has accepted it).
+- **macOS:** `brew install --cask tanganyika/wireant/wireant` (the cask clears the quarantine
+  flag, so it opens without the right-click step).
+
 The NEC-2 engine is inside the program on all three systems. Settings are kept in
 `%APPDATA%\wireant` on Windows and `~/Library/Application Support/wireant` on macOS.
 
