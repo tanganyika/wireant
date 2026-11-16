@@ -81,6 +81,13 @@ beamwidth in free space (DL6WU): D = λ / (2·sin(BW/2)), using the vertical bea
 and the horizontal one for baying. Where the pattern is round in that plane (a dipole broadside,
 a vertical) 0.75 λ is used. **Suggest spacings** works them out again.
 
+**Shared wires** lists the antenna's wires; tick the ones the copies should share instead of
+each getting their own, such as a mast or a cross boom. A shared wire moves only along its own
+line: a vertical mast grows to reach every stacked copy (but not below the ground) and stays put
+when copies are bayed beside it. The pieces on one line are joined into one run, split wherever a
+copy's wire ends on it, so each copy's boom meets the mast at a wire end. Wires with a source,
+load or line on them can't be shared.
+
 **Make the array** puts it in place of the antenna; **Undo** brings the single antenna back. Two
 antennas give close to 3 dB more gain and half the beamwidth in the direction they are spaced; four
 in a square, close to 6 dB.

@@ -199,6 +199,7 @@ impl Server {
                     n_bay,
                     d_bay: pick("bay_spacing_m", hint.and_then(|h| h.0)),
                     beam_az: a.get("beam_azimuth_deg").and_then(Value::as_f64).unwrap_or_else(|| hint.map_or(0.0, |h| h.2)),
+                    shared: a.get("shared_wires").and_then(Value::as_array).map(|v| v.iter().filter_map(Value::as_u64).map(|i| i as usize).collect()).unwrap_or_default(),
                 };
                 let arr = crate::stack::build(&self.ant, &layout).map_err(CallError::Failed)?;
                 self.ant = arr;
@@ -837,6 +838,7 @@ fn tools() -> Value {
                 "n_bay": { "type": "integer", "minimum": 1, "maximum": 8, "description": "Antennas side by side (default 1)." },
                 "bay_spacing_m": { "type": "number", "description": "Horizontal spacing (m); default from the horizontal beamwidth." },
                 "beam_azimuth_deg": { "type": "number", "description": "Azimuth of the beam, which the bayed copies sit across; default the free-space maximum." },
+                "shared_wires": { "type": "array", "items": { "type": "integer" }, "description": "Wire indices (from 0) kept once instead of copied, e.g. a mast: each moves only along its own line, is joined into one run and split where a copy's wire ends on it. Not wires with a source, load or line." },
             } },
             "annotations": { "destructiveHint": true },
         },
