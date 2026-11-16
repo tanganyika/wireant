@@ -158,3 +158,46 @@ jobs:
         with:
           files: packages/*
           generate_release_notes: true
+
+  # The APT repository on GitHub Pages (gh-pages branch): adds the new .deb, keeps the last three
+  # versions and signs the index with the APT_GPG_PRIVATE_KEY secret (skipped while it is unset).
+  apt:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+          path: packages
+      - name: Update the APT repository
+        run: |
+          if [ -z "$APT_GPG_PRIVATE_KEY" ]; then
+            echo "::notice::No APT_GPG_PRIVATE_KEY secret, so the APT repository was not updated"
+            exit 0
+          fi
+          command -v apt-ftparchive || sudo apt-get install -y apt-utils
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          printf '%s\n' "$APT_GPG_PRIVATE_KEY" | gpg --batch --import
+          SITE="$RUNNER_TEMP/site"
+          mkdir "$SITE"
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            git fetch --depth 1 origin gh-pages
+            git archive FETCH_HEAD | tar -x -C "$SITE"
+          fi
+          packaging/linux/apt-repo.sh "$SITE" packages/wireant_*_amd64.deb 3
+          touch "$SITE/.nojekyll"
+          [ -f "$SITE/index.html" ] || echo '<!doctype html><meta http-equiv="refresh" content="0; url=apt/">' > "$SITE/index.html"
+          # a single commit each time, so old packages don't pile up in the history
+          cd "$SITE"
+          git init -q -b gh-pages
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898099+github-actions[bot]@users.noreply.github.com" commit -q -m "APT repository for ${GITHUB_REF_NAME}"
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages

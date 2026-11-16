@@ -305,6 +305,17 @@ Ubuntu 20.04 or later, Debian 11 or later, Fedora, openSUSE ...):
 - `wireant-<version>-linux-x86_64.tar.gz` for any distribution, without root: unpack it and
   run `./install.sh` (installs to `~/.local`).
 
+Or add the APT repository once, and new versions arrive with the system's other updates
+(Linux Mint, Ubuntu, Debian, Zorin, Pop!_OS):
+
+```sh
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://tanganyika.github.io/wireant/apt/wireant.gpg | sudo tee /etc/apt/keyrings/wireant.gpg >/dev/null
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/wireant.gpg] https://tanganyika.github.io/wireant/apt stable main" | sudo tee /etc/apt/sources.list.d/wireant.list
+sudo apt update
+sudo apt install wireant
+```
+
 If the window doesn't open, wireant tries plain OpenGL after the default renderer
 (Vulkan/OpenGL ES), says why in a message box if neither works, and leaves the
 message in `~/.cache/wireant/startup-error.txt` (`%LOCALAPPDATA%\wireant` on Windows).
