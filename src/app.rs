@@ -123,6 +123,8 @@ pub struct App {
     prefs: Option<Prefs>,
     /// Help → About, while open
     about_open: bool,
+    /// File → Preferences → "Calculate antenna files when opened": calculate on the next frame
+    calc_pending: bool,
     /// Help → Help topics
     help: crate::help::HelpState,
 }
@@ -260,6 +262,7 @@ impl App {
             ins_all_kind: 0,
             prefs: None,
             about_open: false,
+            calc_pending: false,
             help: Default::default(),
         };
         if let Some(e) = crate::settings::get().default_engine.filter(|e| crate::nec::engine_available(*e)) {
@@ -412,6 +415,11 @@ impl App {
                 self.remember_file(&p);
                 self.path = Some(p);
                 self.file_name = Some(shown);
+                // screenshots calculate on their own and keep the tab they were given
+                if crate::settings::get().calc_on_open && self.shot.is_none() {
+                    self.tab = Tab::Calculate;
+                    self.calc_pending = true;
+                }
             }
             Err(e) => self.error = Some(e),
         }
@@ -912,6 +920,8 @@ impl App {
                 ui.radio_value(&mut p.s.open_last, false, "a blank antenna");
                 ui.radio_value(&mut p.s.open_last, true, "the last antenna opened");
             });
+            ui.checkbox(&mut p.s.calc_on_open, "Calculate antenna files when opened")
+                .on_hover_text("Each time an antenna file is opened, at start-up or with File → Open, go to the Calculate tab and calculate it");
             ui.horizontal(|ui| {
                 ui.label("Engine:");
                 let mut e = p.s.default_engine.unwrap_or(Engine::Wiremom);
@@ -2299,6 +2309,11 @@ impl eframe::App for App {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
         self.compare_progress(&ctx);
+        // an antenna opened with "Calculate antenna files when opened" on; waits for a running job
+        if self.calc_pending && !self.busy() {
+            self.calc_pending = false;
+            self.start_calc(&ctx);
+        }
         if let Some(shot) = &mut self.shot {
             ctx.request_repaint();
             if shot.done.load(Ordering::Relaxed) {

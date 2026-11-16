@@ -15,6 +15,8 @@ pub struct Settings {
     pub last_file: Option<PathBuf>,
     /// Open `last_file` at start-up instead of a blank antenna.
     pub open_last: bool,
+    /// After opening an antenna file (at start-up or later), go to the Calculate tab and calculate it.
+    pub calc_on_open: bool,
     /// Engine chosen at start-up (None = wiremom). `WIREANT_ENGINE` overrides it.
     pub default_engine: Option<Engine>,
     /// An external NEC program (NEC-4, NEC-5 or another NEC-2 build) the user has a copy of.
@@ -32,7 +34,7 @@ pub const DEFAULT_NEC_ARGS: &str = "{in} {out}";
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { last_dir: None, last_file: None, open_last: false, default_engine: None, nec_path: String::new(), nec_args: DEFAULT_NEC_ARGS.into(), nec_stdin: false, nec_jobs: 0 }
+        Settings { last_dir: None, last_file: None, open_last: false, calc_on_open: false, default_engine: None, nec_path: String::new(), nec_args: DEFAULT_NEC_ARGS.into(), nec_stdin: false, nec_jobs: 0 }
     }
 }
 
@@ -64,6 +66,7 @@ impl Settings {
                 "last_dir" => s.last_dir = Some(PathBuf::from(v)).filter(|p| !p.as_os_str().is_empty()),
                 "last_file" => s.last_file = Some(PathBuf::from(v)).filter(|p| !p.as_os_str().is_empty()),
                 "startup" => s.open_last = v.trim() == "last",
+                "calc_on_open" => s.calc_on_open = v.trim() == "1" || v.trim().eq_ignore_ascii_case("true"),
                 "default_engine" => s.default_engine = engine_from_key(v),
                 "nec_path" => s.nec_path = v.trim().to_string(),
                 "nec_args" => s.nec_args = v.trim().to_string(),
@@ -84,6 +87,7 @@ impl Settings {
             t += &format!("last_file={}\n", f.display());
         }
         t += &format!("startup={}\n", if self.open_last { "last" } else { "blank" });
+        t += &format!("calc_on_open={}\n", self.calc_on_open as u8);
         if let Some(e) = self.default_engine {
             t += &format!("default_engine={}\n", engine_key(e));
         }
@@ -147,6 +151,7 @@ mod tests {
             last_dir: Some(PathBuf::from("/home/x/Antennas")),
             last_file: Some(PathBuf::from("/home/x/Antennas/yagi 3el.maa")),
             open_last: true,
+            calc_on_open: true,
             default_engine: Some(Engine::External),
             nec_path: "/opt/nec5/nec5 x".into(),
             nec_args: "-i {in} -o {out}".into(),
@@ -159,5 +164,6 @@ mod tests {
         assert_eq!(old.last_dir, Some(PathBuf::from("/tmp")));
         assert_eq!(old.nec_args, DEFAULT_NEC_ARGS);
         assert!(!old.open_last);
+        assert!(!old.calc_on_open);
     }
 }

@@ -38,6 +38,9 @@ vertical, a ground plane and a quad.
 
 - What to **start with**: a blank antenna, or the antenna you last opened or saved.
   A file named on the command line is opened instead either way.
+- **Calculate antenna files when opened**: each time an antenna file is opened, at start-up
+  or with **File → Open**, go to the Calculate tab and calculate it. Examples and
+  **File → New** aren't calculated.
 - The **engine** used when the program starts.
 - The **External NEC program**. See [Engines](engines.md).
 
