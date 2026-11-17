@@ -255,6 +255,8 @@ pub fn parse(text: &str, file_name: &str) -> Result<Imported, String> {
     let mut tl: Vec<(i64, i64, i64, i64, Net)> = Vec::new();
     // exact lumped parts written by this program: index -> (shunt a, shunt b, series)
     let mut tl_parts: HashMap<usize, (Option<LoadKind>, Option<LoadKind>, Option<LoadKind>)> = HashMap::new();
+    let mut tl_xfmr: HashMap<usize, (Transformer, bool)> = HashMap::new();
+    let mut load_kinds: HashMap<usize, LoadKind> = HashMap::new();
     // plates: SM (or rectangular SP) gives corners 1 and 2, the next SC corner 3
     let mut plates: Vec<Plate> = Vec::new();
     let mut pending_plate: Option<([f64; 3], [f64; 3], usize, usize)> = None;
@@ -297,6 +299,22 @@ pub fn parse(text: &str, file_name: &str) -> Result<Imported, String> {
                         if let (Ok(i), Ok(p)) = (i.parse::<usize>(), serde_json::from_str(json)) {
                             if i >= 1 {
                                 tl_parts.insert(i - 1, p);
+                            }
+                        }
+                    }
+                } else if let Some(x) = c.strip_prefix("wireant transformer ") {
+                    if let Some((i, json)) = x.split_once(' ') {
+                        if let (Ok(i), Ok(t)) = (i.parse::<usize>(), serde_json::from_str::<(Transformer, bool)>(json)) {
+                            if i >= 1 {
+                                tl_xfmr.insert(i - 1, t);
+                            }
+                        }
+                    }
+                } else if let Some(x) = c.strip_prefix("wireant load ") {
+                    if let Some((i, json)) = x.split_once(' ') {
+                        if let (Ok(i), Ok(k)) = (i.parse::<usize>(), serde_json::from_str::<LoadKind>(json)) {
+                            if i >= 1 {
+                                load_kinds.insert(i - 1, k);
                             }
                         }
                     }
@@ -664,6 +682,15 @@ pub fn parse(text: &str, file_name: &str) -> Result<Imported, String> {
                     t.shunt_b = b;
                     t.series = series;
                 }
+                if let Some(&(x, reversed)) = tl_xfmr.get(&i) {
+                    // the NT card was this transformer (with any parts kept above)
+                    let (a, b, _) = tl_parts.get(&i).cloned().unwrap_or_default();
+                    t.transformer = Some(x);
+                    t.reversed = reversed;
+                    t.series = None;
+                    t.shunt_a = a;
+                    t.shunt_b = b;
+                }
                 ant.lines.push(t);
             }
             _ => warn.push(format!("transmission line {} skipped: tag {t1} segment {s1} or tag {t2} segment {s2} not found", i + 1)),
@@ -705,6 +732,12 @@ pub fn parse(text: &str, file_name: &str) -> Result<Imported, String> {
             for (l, p) in ant.loads.iter_mut().zip(&x.load_pos) {
                 l.pos = *p;
             }
+        }
+    }
+    // loads stored as their nearest NEC card (coax chokes as a trap)
+    for (i, k) in load_kinds {
+        if let Some(l) = ant.loads.get_mut(i) {
+            l.kind = k;
         }
     }
     Ok(Imported { ant, warnings: warn })
@@ -759,6 +792,16 @@ pub fn write(ant: &Antenna) -> String {
     // the TL/NT cards hold the parts' admittances at this frequency only; these keep the parts
     for (i, t) in ant.lines.iter().enumerate().filter(|(_, t)| t.has_parts()) {
         cm(&mut o, &format!("wireant parts {} {}", i + 1, serde_json::to_string(&(&t.shunt_a, &t.shunt_b, &t.series)).unwrap_or_default()));
+    }
+    // NT cards hold a transformer's admittances at this frequency only; these keep it
+    for (i, t) in ant.lines.iter().enumerate() {
+        if let Some(x) = &t.transformer {
+            cm(&mut o, &format!("wireant transformer {} {}", i + 1, serde_json::to_string(&(x, t.reversed)).unwrap_or_default()));
+        }
+    }
+    // loads NEC has no card for (coax chokes, written as their L-C trap)
+    for (i, l) in ant.loads.iter().enumerate().filter(|(_, l)| matches!(l.kind, LoadKind::Choke(_))) {
+        cm(&mut o, &format!("wireant load {} {}", i + 1, serde_json::to_string(&l.kind).unwrap_or_default()));
     }
     if ant.ground.second.enabled && ant.ground.kind != GroundKind::Free {
         // the full second-medium description; NEC-2 itself only reads the GD card
@@ -818,7 +861,8 @@ pub fn write(ant: &Antenna) -> String {
             continue;
         }
         let (tag, s) = (l.wire + 1, seg_of(l.wire, l.pos));
-        match l.kind {
+        match l.kind.plain() {
+            LoadKind::Choke(_) => unreachable!(),
             LoadKind::Rx { r, x } => o += &format!("LD 4 {tag} {s} {s} {} {}\n", n(r), n(x)),
             LoadKind::Rlc { r, l_uh, c_pf, parallel } => {
                 o += &format!("LD {} {tag} {s} {s} {} {:.6E} {:.6E}\n", if parallel { 1 } else { 0 }, n(r), l_uh * 1e-6, c_pf * 1e-12)
@@ -855,10 +899,9 @@ pub fn write(ant: &Antenna) -> String {
         if t.a_wire >= ant.wires.len() || t.b_wire >= ant.wires.len() {
             continue;
         }
-        let (ys, ya, yb) = t.part_admittances(ant.freq_mhz * 1e6);
+        let (_, ya, yb) = t.part_admittances(ant.freq_mhz * 1e6);
         let (a, b) = ((t.a_wire + 1, seg_of(t.a_wire, t.a_pos)), (t.b_wire + 1, seg_of(t.b_wire, t.b_pos)));
-        if let Some(y) = ys {
-            let (y11, y12, y22) = (y + ya, -y, y + yb);
+        if let Some((y11, y12, y22)) = t.network(ant.freq_mhz * 1e6) {
             o += &format!("NT {} {} {} {} {} {} {} {} {} {}\n", a.0, a.1, b.0, b.1, e(y11.re), e(y11.im), e(y12.re), e(y12.im), e(y22.re), e(y22.im));
             continue;
         }
@@ -886,6 +929,27 @@ mod tests {
         let text = write(&a);
         let back = parse(&text, "x").unwrap();
         assert_eq!(back.ant.plates, a.plates, "{text}");
+    }
+
+    #[test]
+    fn transformers_and_chokes_round_trip() {
+        let mut a = Antenna::example(0);
+        let x = Transformer { ratio: 49.0, l_uh: 9.7, k: 0.99, q: 3.0 };
+        crate::matching::feed_through_transformer(&mut a, 0, x).unwrap();
+        a.lines[0].shunt_a = Some(LoadKind::Lc { l_uh: 0.0, c_pf: 100.0, q: 0.0 });
+        a.lines[0].reversed = true;
+        a.loads.push(Load { wire: 0, pos: 0.25, kind: LoadKind::Choke(Choke::default()) });
+        let text = write(&a);
+        assert!(text.contains("NT ") && text.contains("LD 1 "), "{text}");
+        let back = parse(&text, "x").unwrap().ant;
+        assert_eq!(back.lines, a.lines, "{text}");
+        assert_eq!(back.loads, a.loads);
+        // without the comments, the NT card still holds the same network at this frequency
+        let plain: String = text.lines().filter(|l| !l.contains("wireant transformer") && !l.contains("wireant parts")).map(|l| format!("{l}\n")).collect();
+        let b = parse(&plain, "x").unwrap().ant;
+        let f = a.freq_mhz * 1e6;
+        let (p, q) = (a.lines[0].network(f).unwrap(), b.lines[0].network(f).unwrap());
+        assert!((p.0 - q.0).norm() < 1e-6 * p.0.norm() && (p.1 - q.1).norm() < 1e-6 * p.1.norm() && (p.2 - q.2).norm() < 1e-6 * p.2.norm());
     }
 
     #[test]

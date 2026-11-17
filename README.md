@@ -61,6 +61,10 @@ their code or files. MMANA-GAL basic is freeware for private use from <http://ww
 - **Transmission lines (wiremom and NEC-2 engines):** feed lines, phasing lines and
   stubs between any two places on wires. Each has an impedance, length, velocity
   factor, loss and reversal.
+- **Transformers and chokes:** baluns and ununs (49:1, 9:1, 4:1…) as coupled
+  windings with primary inductance, leakage, core loss and a compensating
+  capacitor, fed in at the source with one click (wiremom and NEC-2 engines);
+  air-wound coax chokes as a load on the coax shield, from turns and diameters.
 - **Plates (wiremom engine):** flat conducting plates (reflectors, ground screens,
   car-body panels) meshed into triangles. A wire ending on a plate connects to it,
   so a monopole can be fed against a plate.
@@ -166,6 +170,7 @@ Preferences start-up engine; `WIREANT_ENGINE` overrides it, as for the program. 
 | **Wires in or through the ground** (radials, ground rods) | Yes | No | No |
 | **Wires ending on real ground** | Treated as if the ground were perfect (warned) | Not reliable (warned) | Same as wiremom |
 | **Transmission lines** | Yes, with loss | Yes, lossless only | No |
+| **Transformers** (baluns, ununs) | Yes | Yes | No |
 | **Plates** | Yes, flat plates | No (NEC-2 patches are only for closed surfaces) | No |
 | **Steel wire** (permeability) | Yes | Approximated (σ/μr) | Yes |
 | **Second ground area** (sea, marsh, cliff) | Gradual change across the boundary, or the ground where each ray reflects | Only the ground where each ray reflects (GD card) | Gradual change or reflection point, like wiremom |

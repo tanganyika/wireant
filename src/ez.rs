@@ -302,14 +302,6 @@ fn branch(rr: f64, x: f64) -> Option<LoadKind> {
     Some(LoadKind::Rx { r: rr, x })
 }
 
-/// A lumped part of admittance `y`; None when it's next to nothing.
-fn part(y: num_complex::Complex64) -> Option<LoadKind> {
-    (y.norm() > 1e-12).then(|| {
-        let z = 1.0 / y;
-        LoadKind::Rx { r: z.re, x: z.im }
-    })
-}
-
 /// EZNEC's transmission lines, L networks and transformers as this program's lines.
 #[allow(clippy::too_many_arguments)]
 fn insertion_objects(
@@ -404,20 +396,8 @@ fn insertion_objects(
             warn.push(format!("{what} has no port impedances: skipped."));
             continue;
         }
-        // tightly coupled windings: magnetising reactance 1000 times and resistance
-        // 1/1000 of each port's impedance, as a pi network
-        type Cx = num_complex::Complex64;
-        let (x1, x2) = (1e3 * z1, 1e3 * z2);
-        let z11 = Cx::new(1e-3 * z1, x1);
-        let z22 = Cx::new(1e-3 * z2, x2);
-        let z12 = Cx::new(0.0, (x1 * x2).sqrt());
-        let det = z11 * z22 - z12 * z12;
-        let (y11, y22, y12) = (z22 / det, z11 / det, -z12 / det);
-        let mut t = TLine::new(a.0, a.1, b.0, b.1);
-        t.series = part(-y12);
-        t.shunt_a = part(y11 + y12);
-        t.shunt_b = part(y22 + y12);
-        ant.lines.push(t);
+        // EZNEC's transformer is ideal: the ratio of its port impedances
+        ant.lines.push(TLine::transformer(a.0, a.1, b.0, b.1, Transformer { ratio: z2 / z1, ..Transformer::default() }, 0.0));
     }
 }
 
@@ -525,7 +505,8 @@ pub fn write(ant: &Antenna) -> Vec<u8> {
         w.f(o + 69, z.re);
         w.f(o + 73, z.im);
         w.u8(o + 149, b'S');
-        match l.kind {
+        match l.kind.plain() {
+            LoadKind::Choke(_) => unreachable!(),
             LoadKind::Rx { .. } => {
                 // in an RLC file a fixed R+jX can only be kept at this frequency: as series R and L or C
                 if rlc {
@@ -641,7 +622,11 @@ mod tests {
             assert!((ra.ga_dbi - rb.ga_dbi).abs() < 0.2 && (ra.z - rb.z).norm() < 25.0, "{} / {}", ra.z, rb.z);
         }
         if let Some(a) = open("4Square L Network Feed With Z Matching.ez") {
-            assert_eq!((a.lines.len(), a.lines.iter().filter(|t| t.series.is_some()).count()), (7, 3), "4 lines, 2 L networks, 1 transformer");
+            assert_eq!(
+                (a.lines.len(), a.lines.iter().filter(|t| t.series.is_some()).count(), a.lines.iter().filter(|t| t.transformer.is_some()).count()),
+                (7, 2, 1),
+                "4 lines, 2 L networks, 1 transformer"
+            );
             assert!(calc(&a).fb_db > 12.0);
         }
     }

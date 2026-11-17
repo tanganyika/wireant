@@ -230,6 +230,7 @@ fn f(v: f64, d: usize) -> String {
 
 fn load_text(k: &LoadKind) -> String {
     match *k {
+        LoadKind::Choke(c) => c.describe(),
         LoadKind::Rx { r, x } => format!("{} {} j{} Ω", f(r, 2), if x < 0.0 { "−" } else { "+" }, f(x.abs(), 2)),
         LoadKind::Lc { l_uh, c_pf, q } => format!("L {l_uh} µH, C {c_pf} pF, Q {q}"),
         LoadKind::Rlc { r, l_uh, c_pf, parallel } => format!("R {r} Ω, L {l_uh} µH, C {c_pf} pF ({})", if parallel { "parallel" } else { "series" }),
@@ -626,11 +627,33 @@ pub fn build(ant: &Antenna, source: Option<&Path>, calc: Option<&FullResult>, hi
         let rows: Vec<Vec<String>> = ant.loads.iter().map(|l| vec![pos_label(l.wire, l.pos), load_text(&l.kind)]).collect();
         d.table(&["Position", "Value"], &rows, 9.0);
     }
-    if !ant.lines.is_empty() {
+    if ant.lines.iter().any(|t| t.transformer.is_some()) {
+        d.sub("Transformers");
+        let rows: Vec<Vec<String>> = ant
+            .lines
+            .iter()
+            .filter_map(|t| {
+                let x = t.transformer.as_ref()?;
+                let lossy = x.l_uh > 0.0;
+                Some(vec![
+                    pos_label(t.a_wire, t.a_pos),
+                    pos_label(t.b_wire, t.b_pos),
+                    x.label(),
+                    if lossy { f(x.l_uh, 2) } else { "ideal".into() },
+                    if lossy { f(x.k, 4) } else { "—".into() },
+                    if lossy && x.q > 0.0 { f(x.q, 1) } else { "—".into() },
+                    crate::app::parts_text(t),
+                ])
+            })
+            .collect();
+        d.table(&["Primary", "Secondary", "Ratio", "Primary L (µH)", "Coupling k", "Core Q", "Parts"], &rows, 9.0);
+    }
+    if ant.lines.iter().any(|t| t.transformer.is_none()) {
         d.sub("Transmission lines");
         let rows: Vec<Vec<String>> = ant
             .lines
             .iter()
+            .filter(|t| t.transformer.is_none())
             .map(|t| {
                 if t.series.is_some() {
                     let no = || "—".to_string();

@@ -14,15 +14,15 @@ from the file name's ending (`.maa`, `.nec` or `.ez`); without one, it saves `.m
 
 `.nec` files keep everything. Settings NEC has no card for, such as the SWR reference and
 automatic segmentation, are kept in `CM` comment lines that other NEC programs skip. The
-added height is folded into the wires' heights. `.maa` files can't hold transmission lines, plates or
+added height is folded into the wires' heights. `.maa` files can't hold transmission lines, transformers, plates or
 current sources, and EZNEC files as saved here can't hold lines, plates or the second ground. If
 you save an antenna that has any of these to a file that can't hold them, a note says what was
 left out.
 
 EZNEC files are read with their transmission lines (including stubs), L networks, transformers
-and current sources. L networks and transformers become transmission lines with lumped parts. An
-L network's parts keep the impedance they have at the file's frequency. A transformer becomes
-two tightly coupled windings, very close to EZNEC's own model. Stubs end on a small wire of
+and current sources. L networks become transmission lines with lumped parts, which keep the
+impedance they have at the file's frequency. A transformer becomes an ideal transformer with the
+ratio of its two port impedances. Stubs end on a small wire of
 their own, away from the antenna. Lines given in electrical degrees get the physical length for
 the file's frequency. EZNEC puts sources, loads and line ends on segments, and this program puts
 them where segments join. So each one goes to the centre of its EZNEC segment, and those wires

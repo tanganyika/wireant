@@ -148,8 +148,12 @@ pub(crate) fn not_saved(ant: &Antenna, is_ez: bool, is_nec: bool) -> Vec<String>
         return v;
     }
     let n = |k: usize, one: &str, many: &str| format!("{k} {}", if k == 1 { one } else { many });
-    if !ant.lines.is_empty() {
-        v.push(n(ant.lines.len(), "transmission line", "transmission lines"));
+    let xf = ant.lines.iter().filter(|t| t.transformer.is_some()).count();
+    if ant.lines.len() > xf {
+        v.push(n(ant.lines.len() - xf, "transmission line", "transmission lines"));
+    }
+    if xf > 0 {
+        v.push(n(xf, "transformer", "transformers"));
     }
     if !ant.plates.is_empty() {
         v.push(n(ant.plates.len(), "plate", "plates"));
@@ -1272,6 +1276,13 @@ impl App {
                     if ui.button("➕ L/C").clicked() {
                         self.ant.loads.push(Load { wire: 0, pos: 0.5, kind: LoadKind::Lc { l_uh: 1.0, c_pf: 0.0, q: 0.0 } });
                     }
+                    if ui
+                        .button("➕ Coax choke")
+                        .on_hover_text("Coax wound into a coil (an \"ugly balun\"), placed on the wire that stands for the outside of the feed line's shield, to stop common-mode current there")
+                        .clicked()
+                    {
+                        self.ant.loads.push(Load { wire: 0, pos: 0.5, kind: LoadKind::Choke(Choke::default()) });
+                    }
                 });
                 let mut del = None;
                 egui::Grid::new("loads").striped(true).show(ui, |ui| {
@@ -1283,6 +1294,38 @@ impl App {
                         wire_pick(ui, ("lw", i), &mut l.wire, nw);
                         pos_pick(ui, ("lp", i), &mut l.pos);
                         ui.horizontal(|ui| match &mut l.kind {
+                            LoadKind::Choke(c) => {
+                                ui.vertical(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.add(egui::DragValue::new(&mut c.turns).speed(0.1).range(0.5..=200.0).max_decimals(1));
+                                        ui.label("turns, Ø");
+                                        mm_value(ui, &mut c.form_d, 1.0..=2000.0).on_hover_text("Diameter of the former the coax is wound on (mm)");
+                                        ui.label("mm, coax");
+                                        mm_value(ui, &mut c.coax_d, 0.5..=50.0).on_hover_text("Outer diameter of the coax (mm)");
+                                        ui.menu_button("mm ▾", |ui| {
+                                            for (name, d) in COAX {
+                                                if ui.button(format!("{name}  ({} mm)", d * 1000.0)).clicked() {
+                                                    c.coax_d = d;
+                                                    ui.close();
+                                                }
+                                            }
+                                        });
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("length");
+                                        mm_value(ui, &mut c.length, 0.0..=5000.0).on_hover_text("Length of the winding (mm); 0 = turns touching");
+                                        ui.label("mm, Q");
+                                        ui.add(egui::DragValue::new(&mut c.q).speed(1.0).range(0.0..=1000.0)).on_hover_text(
+                                            "Losses of the coil: 0 = lossless. Measured air-wound coax chokes peak at a few kΩ, about Q 10–30.",
+                                        );
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new(format!("= {} µH ∥ {} pF, resonant {:.1} MHz", short(c.l_uh()), short(c.c_pf()), c.resonance_mhz())).weak()).on_hover_text(
+                                            "The coil's inductance (Nagaoka) and self-capacitance (Medhurst), modelled as a parallel trap: it blocks best around its resonance",
+                                        );
+                                    });
+                                });
+                            }
                             LoadKind::Rx { r, x } => {
                                 ui.label("R");
                                 ui.add(egui::DragValue::new(r).speed(0.1));
@@ -1327,14 +1370,14 @@ impl App {
                 }
                 ui.label(RichText::new("feed lines, phasing lines and stubs — wiremom and NEC-2 engines").weak());
             });
-            if !self.ant.lines.is_empty() {
+            if self.ant.lines.iter().any(|t| t.transformer.is_none()) {
                 let mut del = None;
                 egui::Grid::new("lines").striped(true).show(ui, |ui| {
                     for h in ["From wire", "Position", "To wire", "Position", "Z0 (Ω)", "Length (m)", "Vel. factor", "Loss (dB/100 m)", "Reversed", "Parts", ""] {
                         ui.label(RichText::new(h).strong());
                     }
                     ui.end_row();
-                    for (i, t) in self.ant.lines.iter_mut().enumerate() {
+                    for (i, t) in self.ant.lines.iter_mut().enumerate().filter(|(_, t)| t.transformer.is_none()) {
                         wire_pick(ui, ("taw", i), &mut t.a_wire, nw);
                         pos_pick(ui, ("tap", i), &mut t.a_pos);
                         wire_pick(ui, ("tbw", i), &mut t.b_wire, nw);
@@ -1360,6 +1403,8 @@ impl App {
                     self.ant.lines.remove(i);
                 }
             }
+            ui.add_space(8.0);
+            self.transformers(ui, nw);
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.heading("Plates");
@@ -1428,6 +1473,103 @@ impl App {
             ui.heading("Comment");
             ui.add(egui::TextEdit::multiline(&mut self.ant.comment).desired_rows(3).desired_width(f32::INFINITY));
         });
+    }
+
+    /// Transformers (baluns and ununs): lines with a transformer in place of the line.
+    fn transformers(&mut self, ui: &mut egui::Ui, nw: usize) {
+        ui.horizontal(|ui| {
+            ui.heading("Transformers");
+            let at_source = !self.ant.sources.is_empty();
+            ui.menu_button("➕ Feed through…", |ui| {
+                if !at_source {
+                    ui.label("Add a source first: the transformer goes in at the source.");
+                    return;
+                }
+                for r in [49.0, 9.0, 4.0, 1.0, 0.25] {
+                    let x = Transformer { ratio: r, ..Transformer::default() };
+                    if ui.button(format!("{} transformer at the source", x.label())).clicked() {
+                        crate::matching::feed_through_transformer(&mut self.ant, 0, x);
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text("Moves the source onto a small feed wire beside the antenna, which feeds the transformer's primary; the secondary goes where the source was");
+            ui.label(RichText::new("baluns and ununs: the feed goes into the primary, the antenna is on the secondary — wiremom and NEC-2 engines").weak());
+        });
+        if !self.ant.lines.iter().any(|t| t.transformer.is_some()) {
+            return;
+        }
+        let mut del = None;
+        egui::Grid::new("transformers").striped(true).show(ui, |ui| {
+            for h in ["Primary wire", "Position", "Secondary wire", "Position", "Ratio N:1", "Primary L (µH)", "Coupling k", "Core Q", "C across primary (pF)", "Reversed", ""] {
+                ui.label(RichText::new(h).strong());
+            }
+            ui.end_row();
+            for (i, t) in self.ant.lines.iter_mut().enumerate().filter(|(_, t)| t.transformer.is_some()) {
+                wire_pick(ui, ("xaw", i), &mut t.a_wire, nw);
+                pos_pick(ui, ("xap", i), &mut t.a_pos);
+                wire_pick(ui, ("xbw", i), &mut t.b_wire, nw);
+                pos_pick(ui, ("xbp", i), &mut t.b_pos);
+                let Some(x) = t.transformer.as_mut() else { continue };
+                ui.add(egui::DragValue::new(&mut x.ratio).speed(0.1).range(0.01..=1000.0).max_decimals(3))
+                    .on_hover_text("Impedance ratio: the secondary's impedance is N times the primary's (turns ratio √N). 49 for an end-fed half wave, 9 or 4 for random wires, 4 for an off-centre-fed dipole or loop");
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut x.l_uh).speed(0.1).range(0.0..=1e6).max_decimals(2))
+                        .on_hover_text("Inductance of the primary winding on its core (AL × turns²); 0 = an ideal transformer. Too little lets current bypass the load at the low end of the band");
+                    let id = ui.scope_id().with(("xturns", i));
+                    let mut turns: f64 = ui.data_mut(|d| *d.get_temp_mut_or(id, 3.0));
+                    ui.menu_button("🧲", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Primary turns");
+                            ui.add(egui::DragValue::new(&mut turns).speed(0.1).range(1.0..=100.0));
+                        });
+                        for (name, al) in CORES {
+                            if ui.button(format!("{name}  (AL {al} nH/t²): {} µH", crate::matching::sig(core_l_uh(al, turns)))).clicked() {
+                                x.l_uh = core_l_uh(al, turns);
+                                ui.close();
+                            }
+                        }
+                        ui.label(RichText::new("Nominal AL at low frequency; the permeability falls and the loss rises through HF.").weak());
+                    })
+                    .response
+                    .on_hover_text("Primary inductance from a ferrite core and the primary turns");
+                    ui.data_mut(|d| d.insert_temp(id, turns));
+                });
+                ui.add_enabled(x.l_uh > 0.0, egui::DragValue::new(&mut x.k).speed(0.001).range(0.5..=1.0).max_decimals(4))
+                    .on_hover_text("How tightly the windings are coupled: 1 = no leakage inductance; about 0.98–0.995 for twisted or interleaved windings on a toroid. Leakage limits the high end of the band");
+                ui.add_enabled(x.l_uh > 0.0, egui::DragValue::new(&mut x.q).speed(0.1).range(0.0..=1000.0).max_decimals(1))
+                    .on_hover_text("Core loss as the windings' Q (0 = no loss). #43 and #31 mix are lossy at HF (Q around 1–3), #52 and #61 less so");
+                // a compensating capacitor across the primary (the from-end shunt part)
+                let pure_c = match &t.shunt_a {
+                    None => Some(0.0),
+                    Some(LoadKind::Lc { l_uh, c_pf, .. }) if *l_uh == 0.0 => Some(*c_pf),
+                    _ => None,
+                };
+                match pure_c {
+                    Some(mut c) => {
+                        if ui
+                            .add(egui::DragValue::new(&mut c).speed(1.0).range(0.0..=100000.0).max_decimals(1))
+                            .on_hover_text("A compensating capacitor across the primary (often about 100 pF on a 49:1); 0 = none")
+                            .changed()
+                        {
+                            t.shunt_a = (c > 0.0).then_some(LoadKind::Lc { l_uh: 0.0, c_pf: c, q: 0.0 });
+                        }
+                    }
+                    None => {
+                        ui.label(parts_text(t));
+                    }
+                }
+                ui.checkbox(&mut t.reversed, "").on_hover_text("The secondary's ends swapped (winding polarity)");
+                if ui.small_button("🗑").clicked() {
+                    del = Some(i);
+                }
+                ui.end_row();
+            }
+        });
+        if let Some(i) = del {
+            self.ant.lines.remove(i);
+        }
     }
 
     // ------------------------------------------------------------------ calculate
@@ -2147,6 +2289,16 @@ fn engine_pick(ui: &mut egui::Ui, id: &str, e: &mut Engine) {
     })
     .response
     .on_hover_text("wiremom (default): built-in MPIE solver (triangle currents, Galerkin) with Sommerfeld real ground, wires in the ground, transmission lines and plates; multi-threaded in-process.\nMININEC: the original's method, real ground only in the far field.\nNEC-2: public-domain NEC-2 (nec2c) with Sommerfeld-Norton real ground; each calculation runs as its own process, sweeps run many at once.\nExternal NEC: your own copy of NEC-4, NEC-5 or another NEC program (File → Preferences), given the same card deck as NEC-2.");
+}
+
+/// A length held in metres, edited in millimetres.
+fn mm_value(ui: &mut egui::Ui, m: &mut f64, range: std::ops::RangeInclusive<f64>) -> egui::Response {
+    let mut mm = *m * 1000.0;
+    let r = ui.add(egui::DragValue::new(&mut mm).speed(0.5).range(range).max_decimals(2));
+    if r.changed() {
+        *m = mm / 1000.0;
+    }
+    r
 }
 
 fn wire_pick(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, wire: &mut usize, n: usize) {

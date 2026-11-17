@@ -114,6 +114,7 @@ pub fn part_text(k: &LoadKind) -> String {
     match *k {
         LoadKind::Lc { l_uh, c_pf, .. } if c_pf == 0.0 => format!("{} µH", sig(l_uh)),
         LoadKind::Lc { l_uh, c_pf, .. } if l_uh == 0.0 => format!("{} pF", sig(c_pf)),
+        LoadKind::Choke(c) => c.describe(),
         LoadKind::Rx { r, x } => format!("{:.2} {} j{:.2} Ω", r, if x < 0.0 { "−" } else { "+" }, x.abs()),
         LoadKind::Lc { l_uh, c_pf, .. } => format!("{} µH ∥ {} pF", sig(l_uh), sig(c_pf)),
         LoadKind::Rlc { r, l_uh, c_pf, parallel } => format!("R {} Ω, L {} µH, C {} pF ({})", sig(r), sig(l_uh), sig(c_pf), if parallel { "parallel" } else { "series" }),
@@ -121,7 +122,7 @@ pub fn part_text(k: &LoadKind) -> String {
 }
 
 /// Four significant figures.
-fn sig(v: f64) -> String {
+pub(crate) fn sig(v: f64) -> String {
     if v == 0.0 {
         return "0".into();
     }
@@ -147,10 +148,24 @@ pub(crate) fn add_feed_wire(ant: &mut Antenna, lambda: f64, k: usize) -> usize {
     let y = 0.5 * (lo[1] + hi[1]);
     // over ground, clear of it (the ground plane is z = 0 before any added height)
     let z = if ant.ground.kind == GroundKind::Free { 0.5 * (lo[2] + hi[2]) } else { (lambda / 20.0).max(lo[2].max(0.0)) };
-    let mut w = Wire::new([x, y, z], [x, y, z + len], len / 100.0);
+    // (a radius that survives the six decimals of a NEC file)
+    let mut w = Wire::new([x, y, z], [x, y, z + len], ((len / 100.0 * 1e5).round() / 1e5).max(1e-5));
     w.seg = 3;
     ant.wires.push(w);
     ant.wires.len() - 1
+}
+
+/// Feeds source `si` through a new transformer: the source moves to a small feed wire
+/// beside the antenna, the transformer's primary, and its secondary goes where the
+/// source was.  Returns the new line's index.
+pub(crate) fn feed_through_transformer(ant: &mut Antenna, si: usize, x: Transformer) -> Option<usize> {
+    let s = ant.sources.get(si)?.clone();
+    let lambda = ant.lambda();
+    let f = add_feed_wire(ant, lambda, ant.lines.len());
+    ant.sources[si].wire = f;
+    ant.sources[si].pos = 0.5;
+    ant.lines.push(TLine::transformer(f, 0.5, s.wire, s.pos, x, 0.0));
+    Some(ant.lines.len() - 1)
 }
 
 fn move_source(ant: &mut Antenna, wire: usize, pos: f64) {

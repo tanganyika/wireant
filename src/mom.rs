@@ -1028,7 +1028,7 @@ pub fn quick(ant: &Antenna, freq_mhz: f64, seg_freq_mhz: f64, need_far: bool) ->
         Engine::Mininec => {}
     }
     if !ant.lines.is_empty() {
-        return Err("Transmission lines need the wiremom or NEC-2 engine (choose it under Calculate → Engine).".into());
+        return Err("Transmission lines and transformers need the wiremom or NEC-2 engine (choose it under Calculate → Engine).".into());
     }
     if !ant.plates.is_empty() {
         return Err("Plates need the wiremom engine (choose it under Calculate → Engine).".into());

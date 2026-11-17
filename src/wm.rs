@@ -203,10 +203,10 @@ pub fn build(ant: &Antenna, lambda: f64, freq_mhz: f64) -> Result<(Model, Vec<us
     }
     for t in &ant.lines {
         let (wa, wb) = (wire_of(t.a_wire, "a transmission line")?, wire_of(t.b_wire, "a transmission line")?);
-        let (ys, ya, yb) = t.part_admittances(freq_mhz * 1e6);
-        let kind = match ys {
-            // a lumped series part: y11 = y22 = y, y12 = -y, plus the shunt parts
-            Some(y) => TwoPortKind::Admittance { y11: y + ya, y12: -y, y22: y + yb },
+        let (_, ya, yb) = t.part_admittances(freq_mhz * 1e6);
+        let kind = match t.network(freq_mhz * 1e6) {
+            // a lumped series part or a transformer, with the shunt parts
+            Some((y11, y12, y22)) => TwoPortKind::Admittance { y11, y12, y22 },
             None => TwoPortKind::Line {
                 z0: t.z0.abs(),
                 length: (t.length > 0.0).then_some(t.length),
@@ -434,8 +434,24 @@ mod tests {
     fn examples_agree_with_nec2_and_mininec() {
         for i in 0..Antenna::example_names().len() {
             let w = mom::calculate(&with(i, Engine::Wiremom)).unwrap().result;
-            let m = mom::calculate(&with(i, Engine::Mininec)).unwrap().result;
             let name = Antenna::example(i).name;
+            if !Antenna::example(i).lines.is_empty() {
+                // MININEC has no transformers or lines: NEC-2 only
+                if crate::nec::available() {
+                    // NEC-2 can't model a wire into lossy ground (GROUND_CONNECTED_NOTE): compare over perfect ground
+                    let mut a = with(i, Engine::Wiremom);
+                    if touches_ground(&a) {
+                        a.ground.kind = GroundKind::Perfect;
+                    }
+                    let w = mom::calculate(&a).unwrap().result;
+                    let n = nec2(&a);
+                    println!("{name}: wiremom Z={:.1} Ga={:.2} | NEC-2 Z={:.1} Ga={:.2}", w.z, w.ga_dbi, n.z, n.ga_dbi);
+                    // (an end feed's high impedance makes NEC-2 sensitive to the short gap segments)
+                    assert!((w.z - n.z).norm() < 0.15 * n.z.norm(), "{name}: Z {} vs NEC-2 {}", w.z, n.z);
+                }
+                continue;
+            }
+            let m = mom::calculate(&with(i, Engine::Mininec)).unwrap().result;
             print!("{name}: wiremom Z={:.1} Ga={:.2} FB={:.1} ({:.0} ms) | MININEC Z={:.1} Ga={:.2} FB={:.1}", w.z, w.ga_dbi, w.fb_db, w.t_total_ms, m.z, m.ga_dbi, m.fb_db);
             if crate::nec::available() {
                 let n = nec2(&with(i, Engine::Nec2));
@@ -643,6 +659,56 @@ mod tests {
     }
 
     #[test]
+    fn dipole_fed_through_transformer() {
+        // the half-wave dipole through 4:1 at its source: a quarter of its impedance
+        // (ideal), and the circuit formula's value for a real core
+        let d = with(0, Engine::Wiremom);
+        let zd = mom::calculate(&d).unwrap().result.z;
+        for x in [Transformer { ratio: 4.0, ..Transformer::default() }, Transformer { ratio: 4.0, l_uh: 3.0, k: 0.98, q: 5.0 }] {
+            let mut a = d.clone();
+            crate::matching::feed_through_transformer(&mut a, 0, x).unwrap();
+            let r = mom::calculate(&a).unwrap().result;
+            let (y11, y12, y22) = x.admittance(a.freq_mhz * 1e6, false);
+            let want = 1.0 / (y11 - y12 * y12 / (y22 + 1.0 / zd));
+            print!("{x:?}: dipole {zd:.2}, through it {:.2} (formula {want:.2}), eff {:.3}", r.z, r.eff);
+            assert!((r.z - want).norm() < 0.02 * want.norm());
+            if crate::nec::available() {
+                a.engine = Engine::Nec2;
+                let n = mom::calculate(&a).unwrap().result;
+                print!(", NEC-2 {:.2}", n.z);
+                assert!((r.z - n.z).norm() < 0.05 * n.z.norm(), "{} vs {}", r.z, n.z);
+            }
+            println!();
+        }
+    }
+
+    #[test]
+    fn coax_choke_stops_common_mode_current() {
+        // a dipole fed off-centre (asymmetric) with a vertical feed-line wire hanging from
+        // the feed: the line's shield carries common-mode current until a choke stops it
+        let mut a = with(0, Engine::Wiremom);
+        a.ground = Ground { kind: GroundKind::Real, add_height: 0.0, ..a.ground.clone() };
+        a.wires = vec![Wire::new([0.0, -3.4, 10.0], [0.0, 0.0, 10.0], 1e-3), Wire::new([0.0, 0.0, 10.0], [0.0, 6.9, 10.0], 1e-3), Wire::new([0.0, 0.0, 10.0], [0.0, 0.0, 0.0], 2.5e-3)];
+        a.sources = vec![Source { wire: 0, pos: 1.0, ..Source::default() }];
+        let shield = |a: &Antenna| {
+            let full = mom::calculate(a).unwrap();
+            let i_feed = full.result.z.inv().norm();
+            // segments of the vertical wire (on the z axis), below the feed point
+            let on_line = |p: [f64; 3]| p[0].abs() < 1e-6 && p[1].abs() < 1e-6 && p[2] < 9.5;
+            let m = full.seg_currents.unwrap().iter().filter(|(a, b, _)| on_line(*a) && on_line(*b)).map(|s| s.2).fold(0.0, f64::max);
+            m / i_feed
+        };
+        let without = shield(&a);
+        let f0 = a.freq_mhz;
+        // 8 turns on a former sized to resonate near 14 MHz
+        let c = Choke { turns: 8.0, form_d: 0.15, coax_d: 0.005, length: 0.0, q: 20.0 };
+        a.loads.push(Load { wire: 2, pos: 0.05, kind: crate::model::LoadKind::Choke(c) });
+        let with_choke = shield(&a);
+        println!("{} at {f0} MHz: shield current {without:.3} → {with_choke:.3} of the feed current", c.describe());
+        assert!(with_choke < 0.5 * without);
+    }
+
+    #[test]
     fn dipole_fed_through_lines_matches_nec2() {
         // the half-wave dipole fed from a short feed wire through 75 ohm lines
         for (len, vf) in [(5.3, 1.0), (9.1, 0.66)] {
@@ -707,4 +773,3 @@ mod tests {
         assert!(r.points.iter().all(|p| p.z.re > 0.0 && p.ga_dbi.is_finite()));
     }
 }
-

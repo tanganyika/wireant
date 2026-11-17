@@ -505,7 +505,8 @@ impl Server {
             "wires": a.wires.len(),
             "sources": a.sources.iter().map(|s| pos_label(s.wire, s.pos)).collect::<Vec<_>>(),
             "loads": a.loads.len(),
-            "transmission_lines": a.lines.len(),
+            "transmission_lines": a.lines.iter().filter(|t| t.transformer.is_none()).count(),
+            "transformers": a.lines.iter().filter(|t| t.transformer.is_some()).count(),
             "plates": a.plates.len(),
             "ground": a.ground.kind,
             "material": a.material,
@@ -770,7 +771,7 @@ fn tools() -> Value {
         },
         {
             "name": "save_file",
-            "description": "Saves the current antenna; the format follows the extension (.maa, .nec or .ez; .maa when there is none). Transmission lines and plates aren't stored in .maa files.",
+            "description": "Saves the current antenna; the format follows the extension (.maa, .nec or .ez; .maa when there is none). Transmission lines, transformers and plates aren't stored in .maa files.",
             "inputSchema": { "type": "object", "properties": {
                 "path": { "type": "string", "description": "Absolute path; default: the file it was opened from or last saved to." },
             } },
@@ -778,7 +779,7 @@ fn tools() -> Value {
         },
         {
             "name": "get_antenna",
-            "description": "Returns the current antenna as JSON: wires (p1, p2 in m, radius r in m, seg <= 0 = automatic, insulation ins_t/ins_eps), sources (current: true = a current source, volts then in amps), loads (type rx / lc / rlc), transmission lines, plates, ground (kind free/perfect/real, eps_r, sigma_ms, add_height), material, z0 for SWR, segmentation, engine and open_ends (wiremom: free wire ends open like a tube, as NEC models them, instead of flat rod-end caps; patching material sets it, true for pipe materials, unless the patch sets it too).",
+            "description": "Returns the current antenna as JSON: wires (p1, p2 in m, radius r in m, seg <= 0 = automatic, insulation ins_t/ins_eps), sources (current: true = a current source, volts then in amps), loads (type rx / lc / rlc / choke: an air-wound coax choke {turns, form_d, coax_d, length (0 = close-wound), q} in m, placed on the wire standing for the coax shield's outside), transmission lines (a line with 'transformer': {ratio N of N:1, l_uh primary inductance (0 = ideal), k coupling, q core loss} is a balun/unun with its primary at end a; feed it from a small isolated feed wire carrying the source), plates, ground (kind free/perfect/real, eps_r, sigma_ms, add_height), material, z0 for SWR, segmentation, engine and open_ends (wiremom: free wire ends open like a tube, as NEC models them, instead of flat rod-end caps; patching material sets it, true for pipe materials, unless the patch sets it too).",
             "inputSchema": { "type": "object", "properties": {} },
             "annotations": ro,
         },

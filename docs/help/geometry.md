@@ -48,6 +48,17 @@ Loads are components placed on a wire:
 - **R+jX**: a fixed resistance and reactance.
 - **L/C**: an inductor, a capacitor or both. With both, they are in series, or in parallel (a trap)
   when **parallel** is ticked. **Q** adds the coil's loss; 0 means lossless.
+- **Coax choke**: coax wound into a single-layer air coil (an "ugly balun"). Set the turns, the
+  former's diameter, the coax's diameter (▾ lists common cables) and the winding length (0 means
+  the turns touch). The program works out the coil's inductance (Nagaoka) and self-capacitance
+  (Medhurst) and models it as a parallel trap, so it blocks best around the resonance it shows.
+  **Q** is the coil's loss: measured air-wound chokes suggest 10–30.
+
+  Put the choke on the wire that stands for the outside of the coax shield. A feed line is
+  modelled as a wire from the feed point running where the coax runs: the inside of the coax
+  carries the feed, and that wire carries the common-mode current on the outside, which the
+  choke stops. `.maa` and EZNEC files hold a choke as its trap; `.maa` and `.nec` files saved
+  here also keep the choke's own values.
 
 ## Transmission lines
 
@@ -62,6 +73,36 @@ wiremom and NEC-2 engines only. For each line you set:
 - **Parts**: coils and capacitors that the match calculator added. A part can sit across either
   end, or join the two ends in place of the line, and then the line's own values are unused.
   Delete the line to remove them. In `.nec` files they are TL shunt admittances and NT cards.
+
+## Transformers
+
+A transformer, a balun or unun such as the 49:1 of an end-fed half wave or the 9:1 or 4:1 of a
+random wire, joins two places on wires like a transmission line: the **primary** is where the
+feed comes in, the **secondary** is the antenna side. It works with the wiremom and NEC-2
+engines only.
+
+**➕ Feed through…** puts one in at the source: the source moves onto a small feed wire beside the
+antenna, which feeds the primary, and the secondary goes where the source was. The small wire is
+too short to radiate; it is the usual NEC way to feed a network. For an end-fed antenna, the
+secondary sits on a short wire (a few tens of cm) between the end of the radiator and the
+counterpoise or coax shield, so the model has the transformer's two terminals.
+
+- **Ratio N:1**: the impedance ratio. The secondary sees N times the primary's impedance (the turns
+  ratio is √N). Below 1 it steps up the other way.
+- **Primary L**: the primary winding's inductance on its core, AL × turns². 🧲 works it out from a
+  common toroid and the primary turns. 0 makes an ideal transformer. Too little inductance shunts
+  the feed at the low end of the band.
+- **Coupling k**: 1 means no leakage; twisted or interleaved windings on a toroid reach about
+  0.98–0.995. Leakage spoils the match at the high end of the band.
+- **Core Q**: the core's loss, as the windings' Q. #43 and #31 mix are lossy at HF (Q about 1–3).
+  The power lost shows with the lines' in the power budget.
+- **C across primary**: a compensating capacitor, often about 100 pF on a 49:1.
+- **Reversed**: the secondary's ends swapped.
+
+The transformer is modelled as two coupled windings, which covers baluns and ununs alike; whether
+the two sides share a terminal is up to the wires around it. In `.nec` files it is an NT card
+(its admittances at the file's frequency, which any NEC program reads) and a `CM` comment that
+keeps its values.
 
 ## Plates
 

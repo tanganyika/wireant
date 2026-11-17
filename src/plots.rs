@@ -718,20 +718,38 @@ pub fn view3d(ui: &mut egui::Ui, size: Vec2, ant: &Antenna, calc: Option<&FullRe
         painter.add(egui::Shape::convex_polygon(c.to_vec(), Color32::from_rgba_unmultiplied(120, 150, 200, 60), Stroke::new(1.2, Color32::from_rgb(70, 100, 160))));
     }
     // transmission lines: a dashed link between their ends
+    // (a transformer: a purple link and the two-coil symbol with its ratio at the secondary)
     for t in &ant.lines {
         if let (Some(wa), Some(wb)) = (ant.wires.get(t.a_wire), ant.wires.get(t.b_wire)) {
             let (p, q) = (proj(at(wa, t.a_pos)), proj(at(wb, t.b_pos)));
+            let col = if t.transformer.is_some() { Color32::from_rgb(140, 60, 180) } else { Color32::from_rgb(200, 120, 20) };
             let n = ((q - p).length() / 6.0).ceil().max(1.0) as usize;
             for k in (0..n).step_by(2) {
                 let (u, v) = (k as f32 / n as f32, ((k + 1) as f32 / n as f32).min(1.0));
-                painter.line_segment([p + (q - p) * u, p + (q - p) * v], Stroke::new(1.5, Color32::from_rgb(200, 120, 20)));
+                painter.line_segment([p + (q - p) * u, p + (q - p) * v], Stroke::new(1.5, col));
+            }
+            if let Some(x) = &t.transformer {
+                let c = q + Vec2::new(0.0, -14.0);
+                painter.circle_stroke(c + Vec2::new(-3.5, 0.0), 5.5, Stroke::new(1.6, col));
+                painter.circle_stroke(c + Vec2::new(3.5, 0.0), 5.5, Stroke::new(1.6, col));
+                painter.text(c + Vec2::new(11.0, 0.0), Align2::LEFT_CENTER, x.label(), FontId::proportional(11.0), col);
             }
         }
     }
     for l in &ant.loads {
         if let Some(w) = ant.wires.get(l.wire) {
             let p = proj(at(w, l.pos));
-            painter.rect_filled(Rect::from_center_size(p, Vec2::splat(8.0)), 1.0, Color32::from_rgb(20, 160, 60));
+            if let LoadKind::Choke(_) = l.kind {
+                // a coil: three loops along the wire
+                let d = proj(at(w, (l.pos + 0.01).min(1.0))) - proj(at(w, (l.pos - 0.01).max(0.0)));
+                let u = if d.length() > 1e-3 { d.normalized() } else { Vec2::X };
+                let col = Color32::from_rgb(20, 130, 150);
+                for k in [-1.0f32, 0.0, 1.0] {
+                    painter.circle_stroke(p + u * (k * 5.0), 4.5, Stroke::new(1.8, col));
+                }
+            } else {
+                painter.rect_filled(Rect::from_center_size(p, Vec2::splat(8.0)), 1.0, Color32::from_rgb(20, 160, 60));
+            }
         }
     }
     for s in &ant.sources {
@@ -753,6 +771,7 @@ pub fn view3d(ui: &mut egui::Ui, size: Vec2, ant: &Antenna, calc: Option<&FullRe
             .iter()
             .filter(|l| l.wire == i)
             .map(|l| match l.kind {
+                LoadKind::Choke(c) => c.describe(),
                 LoadKind::Rx { r, x } => format!("load {:.1}{:+.1}j Ω", r, x),
                 LoadKind::Lc { l_uh, c_pf, q } => format!("load L {} µH C {} pF Q {}", l_uh, c_pf, q),
                 LoadKind::Rlc { r, l_uh, c_pf, parallel } => format!("load R {} L {} µH C {} pF {}", r, l_uh, c_pf, if parallel { "parallel" } else { "series" }),

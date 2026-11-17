@@ -103,6 +103,8 @@ pub fn parse(text: &str) -> Result<Antenna, String> {
                 "ground".into()
             } else if raw.starts_with("insulation") {
                 "insulation".into()
+            } else if raw.starts_with("choke") {
+                "chokes".into()
             } else {
                 ORDER.get(star_sections).map(|s| s.to_string()).unwrap_or_default()
             };
@@ -193,6 +195,17 @@ pub fn parse(text: &str) -> Result<Antenna, String> {
                     ant.wires[wi - 1].ins_eps = f(v.get(2), 1.0);
                 }
             }
+            "chokes" => {
+                if pending == usize::MAX {
+                    pending = f(v.first(), 0.0) as usize;
+                    continue;
+                }
+                let li = f(v.first(), 0.0) as usize;
+                if li >= 1 && li <= ant.loads.len() && v.len() >= 6 {
+                    let c = Choke { turns: f(v.get(1), 0.0), form_d: f(v.get(2), 0.0), coax_d: f(v.get(3), 0.0), length: f(v.get(4), 0.0), q: f(v.get(5), 0.0) };
+                    ant.loads[li - 1].kind = LoadKind::Choke(c);
+                }
+            }
             "second ground" => {
                 // this program's extension: εr, σ (mS/m), line|circle, distance,
                 // bearing, drop, fresnel|specular
@@ -243,7 +256,8 @@ pub fn write(ant: &Antenna) -> String {
     }
     o += &format!("*** Load ***\n{},\t1\n", ant.loads.len());
     for l in &ant.loads {
-        match l.kind {
+        match l.kind.plain() {
+            LoadKind::Choke(_) => unreachable!(),
             LoadKind::Rx { r, x } => o += &format!("{},\t1,\t{},\t{}\n", pos_label(l.wire, l.pos), g(r), g(x)),
             LoadKind::Lc { l_uh, c_pf, q } => {
                 o += &format!("{},\t0,\t{},\t{},\t{}\n", pos_label(l.wire, l.pos), g(l_uh), g(c_pf), g(q))
@@ -278,6 +292,19 @@ pub fn write(ant: &Antenna) -> String {
     if !ins.is_empty() {
         o += &format!("*** Insulation ***\n{}\n{}\n", ins.len(), ins.join("\n"));
     }
+    // this program's extension: coax chokes, which MMANA reads as their L-C trap above
+    let chokes: Vec<String> = ant
+        .loads
+        .iter()
+        .enumerate()
+        .filter_map(|(i, l)| match l.kind {
+            LoadKind::Choke(c) => Some(format!("{},\t{},\t{},\t{},\t{},\t{}", i + 1, g(c.turns), g(c.form_d), g(c.coax_d), g(c.length), g(c.q))),
+            _ => None,
+        })
+        .collect();
+    if !chokes.is_empty() {
+        o += &format!("*** Chokes ***\n{}\n{}\n", chokes.len(), chokes.join("\n"));
+    }
     if ant.ground.eps_r != 13.0 || ant.ground.sigma_ms != 5.0 {
         o += &format!("*** Ground ***\n{},\t{}\n", g(ant.ground.eps_r), g(ant.ground.sigma_ms));
     }
@@ -295,6 +322,15 @@ pub fn write(ant: &Antenna) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn chokes_round_trip() {
+        let mut a = Antenna::example(0);
+        a.loads.push(Load { wire: 0, pos: 0.25, kind: LoadKind::Choke(Choke { turns: 6.5, form_d: 0.11, coax_d: 0.0103, length: 0.09, q: 25.0 }) });
+        let text = write(&a);
+        let back = parse(&text).unwrap();
+        assert_eq!(back.loads, a.loads, "{text}");
+    }
+
     #[test]
     fn round_trip() {
         for i in 0..Antenna::example_names().len() {
