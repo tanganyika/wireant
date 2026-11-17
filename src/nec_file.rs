@@ -261,7 +261,7 @@ pub fn parse(text: &str, file_name: &str) -> Result<Imported, String> {
     let mut plates: Vec<Plate> = Vec::new();
     let mut pending_plate: Option<([f64; 3], [f64; 3], usize, usize)> = None;
     // exact line values written by this program (NEC-2 TL can't hold them): index -> (vf, loss)
-    let mut tl_extra: HashMap<usize, (f64, f64)> = HashMap::new();
+    let mut tl_extra: HashMap<usize, (f64, f64, Option<f64>)> = HashMap::new();
     // join the continuation lines of long comments (see `cm`)
     let mut joined: Vec<(usize, String)> = Vec::new();
     for (ln, raw) in text.lines().enumerate() {
@@ -321,7 +321,7 @@ pub fn parse(text: &str, file_name: &str) -> Result<Imported, String> {
                 } else if let Some(x) = c.strip_prefix("wireant line") {
                     let v: Vec<f64> = x.split_whitespace().filter_map(|s| s.parse().ok()).collect();
                     if v.len() >= 3 && v[0] >= 1.0 {
-                        tl_extra.insert(v[0] as usize - 1, (v[1], v[2]));
+                        tl_extra.insert(v[0] as usize - 1, (v[1], v[2], v.get(3).copied()));
                     }
                 } else if !c.is_empty() {
                     comments.push(c);
@@ -653,12 +653,14 @@ pub fn parse(text: &str, file_name: &str) -> Result<Imported, String> {
                 let mut t = TLine::new(wa, pa, wb, pb);
                 match net {
                     Net::Line { z0, len, ya, yb } => {
-                        let (vf, loss) = tl_extra.get(&i).copied().unwrap_or((1.0, 0.0));
+                        let (vf, loss, phys) = tl_extra.get(&i).copied().unwrap_or((1.0, 0.0, None));
                         t.z0 = z0.abs();
                         t.reversed = z0 < 0.0;
                         // NEC-2 lengths are electrical (at c); with a stored velocity factor the
                         // physical length is shorter
-                        t.length = len.max(0.0) * vf;
+                        // (the physical length itself where this program wrote it: the electrical
+                        // length's six decimals don't give it back exactly)
+                        t.length = phys.unwrap_or(len.max(0.0) * vf);
                         t.vf = vf;
                         t.loss_db = loss;
                         t.shunt_a = fixed(ya);
@@ -787,7 +789,7 @@ pub fn write(ant: &Antenna) -> String {
         o += &format!("CM wireant insulation {} {} {}\n", i + 1, w.ins_t, w.ins_eps);
     }
     for (i, t) in ant.lines.iter().enumerate().filter(|(_, t)| t.vf != 1.0 || t.loss_db != 0.0) {
-        o += &format!("CM wireant line {} {} {}\n", i + 1, t.vf, t.loss_db);
+        o += &format!("CM wireant line {} {} {} {}\n", i + 1, t.vf, t.loss_db, t.length);
     }
     // the TL/NT cards hold the parts' admittances at this frequency only; these keep the parts
     for (i, t) in ant.lines.iter().enumerate().filter(|(_, t)| t.has_parts()) {

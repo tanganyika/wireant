@@ -734,6 +734,34 @@ pub struct Antenna {
     pub open_ends: bool,
 }
 
+/// A feed wire: one that carries a source and feeds a transmission line or transformer,
+/// standing in for the transmitter and its coax (see `matching::add_feed_wire`).
+pub fn is_feed_wire(ant: &Antenna, wire: usize) -> bool {
+    ant.sources.iter().any(|s| s.wire == wire) && ant.lines.iter().any(|t| t.a_wire == wire || t.b_wire == wire)
+}
+
+/// What a small wire with no antenna role stands for, if anything: a feed wire with its
+/// source ("feed …" as the view labels it, and a sentence for its hover text), or a
+/// junction joining two lines or a line and a transformer.
+pub fn port_wire_role(ant: &Antenna, wire: usize) -> Option<(&'static str, &'static str)> {
+    let ends: Vec<&TLine> = ant.lines.iter().filter(|t| t.a_wire == wire || t.b_wire == wire).collect();
+    if ends.is_empty() {
+        return None;
+    }
+    let xf = ends.iter().any(|t| t.transformer.is_some());
+    if ant.sources.iter().any(|s| s.wire == wire) {
+        Some(if xf {
+            ("feed (coax at the transformer)", "feed wire: the end of the coax at the transformer's primary, so the impedance shown is what an analyser sees there; the rig is at the coax's far end. Too short to radiate")
+        } else {
+            ("feed (rig)", "feed wire: the transmitter, at the near end of the line along the dotted line, so the impedance shown is what the rig sees. Too short to radiate")
+        })
+    } else if ends.len() >= 2 {
+        Some(("", "junction wire: joins the line and the transformer (or two lines) along the dotted lines. Too short to radiate"))
+    } else {
+        None
+    }
+}
+
 pub fn pos_label(wire: usize, pos: f64) -> String {
     if pos <= 1e-9 {
         format!("w{}b", wire + 1)
@@ -874,12 +902,29 @@ impl Antenna {
                 a.wires[1].seg = 3;
                 a.wires.push(Wire::new([0.0, 0.0, 9.8], [0.0, 0.0, 0.0], 2.5e-3));
                 a.sources.push(Source { wire: 1, pos: 0.5, phase_deg: 0.0, volts: 1.0, current: false });
-                // 49:1 on an FT240-43 with 3 primary turns, fed from a small feed wire
+                // 49:1 on an FT240-43 with 3 primary turns, fed from a small junction wire
                 let x = Transformer { ratio: 49.0, l_uh: core_l_uh(1075.0, 3.0), k: 0.99, q: 0.0 };
                 crate::matching::feed_through_transformer(&mut a, 0, x);
+                // the inside of the coax: 10 m of RG-58 from the rig, a small feed wire beside
+                // the foot of the coax, up to the transformer's junction wire
+                // (drawn 1 m out from the coax: the junction beside the transformer, the rig at the foot)
+                let junction = a.sources[0].wire;
+                let len = a.wires[junction].length();
+                a.wires[junction].p1 = [-1.0, 0.0, 9.0];
+                a.wires[junction].p2 = [-1.0, 0.0, 9.0 + len];
+                let mut rig = Wire::new([-1.0, 0.0, 0.5], [-1.0, 0.0, 0.5 + len], a.wires[junction].r);
+                rig.seg = 3;
+                a.wires.push(rig);
+                let rig = a.wires.len() - 1;
+                a.sources[0].wire = rig;
+                let mut coax = TLine::new(rig, 0.5, junction, 0.5);
+                coax.length = 10.0;
+                coax.vf = 0.66;
+                coax.loss_db = 3.9;
+                a.lines.push(coax);
                 // 8 turns of RG-58 on a 20 cm former, 1 m above the ground
                 a.loads.push(Load { wire: 2, pos: 0.9, kind: LoadKind::Choke(Choke { turns: 8.0, form_d: 0.2, coax_d: 0.005, length: 0.0, q: 20.0 }) });
-                a.comment = "Wire 3 is the outside of the coax shield, the counterpoise. Delete the choke (or move it up wire 3) to see how much the feed depends on the coax.".into();
+                a.comment = "Wire 3 is the outside of the coax shield, the counterpoise; the transmission line is the inside of the same coax, from the rig (wire 5) to the transformer. Delete the choke (or move it up wire 3) to see how much the feed depends on the coax.".into();
                 a
             }
             _ => {

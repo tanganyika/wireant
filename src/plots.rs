@@ -757,6 +757,9 @@ pub fn view3d(ui: &mut egui::Ui, size: Vec2, ant: &Antenna, calc: Option<&FullRe
             let p = proj(at(w, s.pos));
             painter.circle_filled(p, 5.0, Color32::from_rgb(220, 30, 30));
             painter.circle_stroke(p, 7.0, Stroke::new(1.0, Color32::from_rgb(220, 30, 30)));
+            if let Some((label, _)) = port_wire_role(ant, s.wire) {
+                painter.text(p + Vec2::new(-10.0, 0.0), Align2::RIGHT_CENTER, label, FontId::proportional(11.0), Color32::from_rgb(220, 30, 30));
+            }
         }
     }
     if st.draw {
@@ -783,6 +786,9 @@ pub fn view3d(ui: &mut egui::Ui, size: Vec2, ant: &Antenna, calc: Option<&FullRe
         }
         if !loads.is_empty() {
             txt += &format!("\n{}", loads.join(", "));
+        }
+        if let Some((_, about)) = port_wire_role(ant, i) {
+            txt += &format!("\n{about}");
         }
         txt += if st.draw && st.adding {
             "\ndrag from an end: new wire from there   right-click: edit"
