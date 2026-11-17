@@ -1,0 +1,42 @@
+Package: wireant
+Architecture: amd64
+Version: 0.7.0
+Priority: optional
+Section: hamradio
+Maintainer: wireant <https://github.com/tanganyika/wireant/issues>
+Installed-Size: 26748
+Depends: libc6 (>= 2.30), libgl1, libegl1, libxkbcommon0, libx11-6, libxcursor1, libxrandr2, libxi6
+Recommends: libxkbcommon-x11-0, libwayland-client0, libvulkan1, xdg-desktop-portal
+Filename: pool/main/wireant_0.7.0_amd64.deb
+Size: 7547004
+MD5sum: f1100ce0c794011a97c2765671573e9f
+SHA1: 9ad56f52c61c8c5309c930d329d2e956007f7c8e
+SHA256: 5dc82ffef7cd90be6f62d135ca4e9a1259d26703d73b46eecb6decf80d91539a
+SHA512: 51626bd19376199e3ec5190e0c61c0dd4f9a5c1303dcece9c8c109472c553616c8a37b2e27ce04e865aa99fdfeca94759c78d74e3ba2afaa1444bab0e049f70e
+Homepage: https://github.com/tanganyika/wireant
+Description: Model wire antennas (MININEC, wiremom and NEC-2 engines)
+ Desktop program for modelling wire antennas: impedance, SWR, gain and
+ radiation patterns, frequency sweeps and an optimizer. Reads and writes
+ MMANA (.maa), NEC (.nec) and EZNEC (.ez) files.
+
+Package: wireant
+Architecture: amd64
+Version: 0.8.0
+Priority: optional
+Section: hamradio
+Maintainer: wireant <https://github.com/tanganyika/wireant/issues>
+Installed-Size: 26900
+Depends: libc6 (>= 2.30), libgl1, libegl1, libxkbcommon0, libx11-6, libxcursor1, libxrandr2, libxi6
+Recommends: libxkbcommon-x11-0, libwayland-client0, libvulkan1, xdg-desktop-portal
+Filename: pool/main/wireant_0.8.0_amd64.deb
+Size: 7583336
+MD5sum: 79ff6b681c9d570c7964190b297d1406
+SHA1: f8fdd7d962c8048eba441c919e3e3844c39599fd
+SHA256: 7e8bb540bb31f828fab3e21d9e38c550ccfc4cae0a727d59ded706f49eac7097
+SHA512: 1486dbc737fef6e3c5897799d3d646cb39b4dfd3e40a67b4263e4c85efe33fd15edb76ed8afd1bd937ec22b1227fb7bd206d57581113025da78eb8b96a4ae804
+Homepage: https://github.com/tanganyika/wireant
+Description: Model wire antennas (MININEC, wiremom and NEC-2 engines)
+ Desktop program for modelling wire antennas: impedance, SWR, gain and
+ radiation patterns, frequency sweeps and an optimizer. Reads and writes
+ MMANA (.maa), NEC (.nec) and EZNEC (.ez) files.
+

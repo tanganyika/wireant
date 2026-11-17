@@ -1,0 +1,20 @@
+Architectures: amd64
+Codename: stable
+Components: main
+Date: Tue, 17 Nov 2026 15:25:47 +0000
+Description: wireant wire antenna modelling
+Label: wireant
+Origin: wireant
+Suite: stable
+MD5Sum:
+ 512546f8886a45f4f2f15e2285408448             2058 main/binary-amd64/Packages
+ e5a44df8f2d4fef97448fa47386af9a4              882 main/binary-amd64/Packages.gz
+SHA1:
+ be41e3757b5ac8fb98989c5af69c5790c2a30410             2058 main/binary-amd64/Packages
+ a9bd86da7e2a993ff1a1dda494cd4f2670a5dabc              882 main/binary-amd64/Packages.gz
+SHA256:
+ 3836048b127462b52e447bbe9c467d6a91e473da74dc8a743f88648a21d2c418             2058 main/binary-amd64/Packages
+ 62a0d7b015f781d79f544c11659d5fdd0304b968324121eefcfb0eed94b810e6              882 main/binary-amd64/Packages.gz
+SHA512:
+ e926090a110c66e29f98c5bebd1ce6bdc47e0a9b7eaba19adfc7bd07307774619b6ddf7188d4374b2f7b08cc11e0232b8544cc569886bf1f37d2eda92b09ca03             2058 main/binary-amd64/Packages
+ 25b144fb5923f654a3b0922b2eb35fead82311347e488b6ea2a818b643a5d697ca32fc065038d9423492908d5618a8973282c8befd651a1779edef0d81f8e829              882 main/binary-amd64/Packages.gz
