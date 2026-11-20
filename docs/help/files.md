@@ -29,8 +29,8 @@ them where segments join. So each one goes to the centre of its EZNEC segment, a
 get twice as many segments, so there's a join there. Virtual segments aren't supported:
 anything connected to one is skipped, with a note.
 
-**File → Examples** loads one of six ready-made antennas: a dipole, an inverted V, a Yagi, a
-vertical, a ground plane and a quad.
+**File → Examples** loads one of seven ready-made antennas: a dipole, an inverted V, a Yagi, a
+vertical, a ground plane, a quad and an end-fed half wave with a 49:1 unun and coax choke.
 
 ## Preferences
 

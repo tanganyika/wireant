@@ -45,7 +45,8 @@ their code or files. MMANA-GAL basic is freeware for private use from <http://ww
         Ends snap to other wire ends and to a chosen grid.
       - A live readout shows the length and coordinates. Ctrl+drag rotates the
         view, and Undo (Ctrl+Z) reverses drawing changes;
-  - Calculate;
+  - Calculate: impedance, SWR, gain, F/B and the −3 dB beamwidths in the
+    horizontal and vertical patterns;
   - Far field plots (movable gain marker);
   - 3D pattern (ARRL / dB / linear);
   - Frequency sweep;
@@ -115,10 +116,29 @@ their code or files. MMANA-GAL basic is freeware for private use from <http://ww
     or `untitled.pdf` in the last folder used. The PDF is written directly, with
     vector plots and standard PDF fonts, so nothing else needs installing.
     Once saved, the report opens in the default PDF viewer.
+  - **Stack / bay array:** turns the antenna into an array of copies of itself,
+    stacked one above another and/or bayed side by side, all fed in phase. The
+    spacings start from the antenna's −3 dB beamwidth (DL6WU), and wires such as
+    a mast or cross boom can be shared between the copies. **Undo** brings the
+    single antenna back.
+  - **Great circle map:** lays the horizontal pattern over an azimuthal
+    equidistant world map centred on your Maidenhead locator, with the short and
+    long paths. Set or drag the antenna's bearing, or click a place on the map to
+    point the beam there; hover to read the locator, bearing, distance and gain.
+  - **RF exposure:** maps the E and H fields around the antenna against ICNIRP
+    1998, ICNIRP 2020 or FCC general-population reference levels, from the PEP,
+    mode and time on air. It shows the limit as 3D surfaces around the antenna
+    (with 30 % and 10 % surfaces) or as a coloured slice through a plane, with how
+    far the limit reaches. The antenna report includes exposure maps too.
+  - **Engine comparison report (PDF):** with an external NEC program set,
+    calculates the antenna with wiremom and with that program and puts the two
+    side by side: impedance, SWR, gain, F/B, efficiency, overlaid patterns and a
+    21-point sweep.
 - **Help** (Help menu, or F1 for the tab you are on): help pages built into the program.
   They are also in [docs/help](docs/help/README.md).
 - **Preferences** (File → Preferences): whether to start with a blank antenna or the
-  last one opened, the engine used at start-up and the external
+  last one opened, whether to calculate antenna files as soon as they're opened,
+  the engine used at start-up and the external
   NEC program. The last folder used for open/save is remembered too.
 - **MCP server:** `wireant --mcp` lets AI assistants build, load, calculate,
   sweep and optimise antennas; see [Use from an AI assistant (MCP)](#use-from-an-ai-assistant-mcp).
