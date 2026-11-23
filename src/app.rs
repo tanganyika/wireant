@@ -648,13 +648,13 @@ impl App {
                         Ok(()) => {
                             self.remember_dir(&p);
                             let failed: Vec<&str> = cmp.runs.iter().filter(|r| r.calc.is_err() || r.sweep.is_err()).map(|r| r.label.as_str()).collect();
-                            let opened = open_in_viewer(&p);
+                            let viewer = show_pdf(&p);
                             self.status = format!(
                                 "Engine comparison saved to {} in {:.0} s{}{}",
-                                p.display(),
+                                saved_where(&p),
                                 t.elapsed().as_secs_f64(),
                                 if failed.is_empty() { String::new() } else { format!(" ({} failed: see the report)", failed.join(", ")) },
-                                if opened { "" } else { "; couldn't open a PDF viewer" }
+                                viewer
                             );
                         }
                         Err(e) => self.error = Some(format!("Couldn't save the report to {}: {}", p.display(), e)),
@@ -895,12 +895,12 @@ impl App {
                 if self.tools.report.is_none() {
                     missing.push("resonance finder not run");
                 }
-                let opened = open_in_viewer(&p);
+                let viewer = show_pdf(&p);
                 self.status = format!(
                     "Report saved to {}{}{}",
-                    p.display(),
+                    saved_where(&p),
                     if missing.is_empty() { String::new() } else { format!(" ({})", missing.join(", ")) },
-                    if opened { "" } else { "; couldn't open a PDF viewer" }
+                    viewer
                 );
             }
             Err(e) => self.error = Some(format!("Couldn't save the report to {}: {}", p.display(), e)),
@@ -1651,7 +1651,7 @@ impl App {
                         .on_hover_text("Inductance of the primary winding on its core (AL × turns²); 0 = an ideal transformer. Too little lets current bypass the load at the low end of the band");
                     let id = ui.scope_id().with(("xturns", i));
                     let mut turns: f64 = ui.data_mut(|d| *d.get_temp_mut_or(id, 3.0));
-                    ui.menu_button("🧲", |ui| {
+                    ui.menu_button("⭕", |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Primary turns");
                             ui.add(crate::num::Num::new(&mut turns).speed(0.1).range(1.0..=100.0));
@@ -2216,7 +2216,12 @@ impl App {
         let mut open = true;
         let mut delete = false;
         let old = (self.ant.wires[i].p1, self.ant.wires[i].p2);
-        egui::Window::new(format!("Wire {}", i + 1)).id(egui::Id::new("wire_editor")).open(&mut open).resizable(false).collapsible(false).show(ctx, |ui| {
+        let mut win = egui::Window::new(format!("Wire {}", i + 1)).id(egui::Id::new("wire_editor")).open(&mut open).resizable(false).collapsible(false);
+        if narrow(ctx) {
+            // a phone: fit the screen, at the top
+            win = win.max_width(ctx.content_rect().width() - 24.0).anchor(egui::Align2::CENTER_TOP, Vec2::new(0.0, 8.0));
+        }
+        win.show(ctx, |ui| {
             let w = &mut self.ant.wires[i];
             egui::Grid::new("we_grid").num_columns(4).spacing([8.0, 6.0]).show(ui, |ui| {
                 ui.label("");
@@ -2234,7 +2239,7 @@ impl App {
             });
             ui.add_space(4.0);
             let changed_len = ui
-                .horizontal(|ui| {
+                .horizontal_wrapped(|ui| {
                     ui.label("Length (m)");
                     let mut len = w.length();
                     let changed = ui.add(crate::num::Num::new(&mut len).speed(0.01).range(1e-4..=1e6).max_decimals(4)).changed();
@@ -2328,116 +2333,131 @@ impl App {
     }
 
     fn optimizer_tab(&mut self, ui: &mut egui::Ui) {
+        if narrow(ui.ctx()) {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                self.opt_controls(ui);
+                ui.separator();
+                self.opt_progress(ui);
+            });
+            return;
+        }
         egui::Panel::left("optleft").resizable(false).default_size(380.0).show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.heading("What to change");
-                let nw = self.ant.wires.len();
-                let mut del = None;
-                egui::Grid::new("optvars").striped(true).show(ui, |ui| {
-                    for (i, v) in self.opt_vars.iter().enumerate() {
-                        ui.label(format!("Wire {}", v.wire + 1));
-                        ui.label(v.kind.label());
-                        if ui.small_button("🗑").clicked() {
-                            del = Some(i);
-                        }
-                        ui.end_row();
-                    }
-                });
-                if let Some(i) = del {
-                    self.opt_vars.remove(i);
+            egui::ScrollArea::vertical().show(ui, |ui| self.opt_controls(ui));
+        });
+        egui::CentralPanel::default().show(ui, |ui| self.opt_progress(ui));
+    }
+
+    /// The optimizer's variables, goals and Start button.
+    fn opt_controls(&mut self, ui: &mut egui::Ui) {
+        ui.heading("What to change");
+        let nw = self.ant.wires.len();
+        let mut del = None;
+        egui::Grid::new("optvars").striped(true).show(ui, |ui| {
+            for (i, v) in self.opt_vars.iter().enumerate() {
+                ui.label(format!("Wire {}", v.wire + 1));
+                ui.label(v.kind.label());
+                if ui.small_button("🗑").clicked() {
+                    del = Some(i);
                 }
-                ui.horizontal(|ui| {
-                    wire_pick(ui, "newvarw", &mut self.new_var_wire, nw.max(1));
-                    egui::ComboBox::from_id_salt("newvark").selected_text(self.new_var_kind.label()).show_ui(ui, |ui| {
-                        for k in VarKind::ALL {
-                            ui.selectable_value(&mut self.new_var_kind, k, k.label());
-                        }
-                    });
-                    if ui.button("➕ Add").clicked() && nw > 0 {
-                        let v = OptVar { wire: self.new_var_wire.min(nw - 1), kind: self.new_var_kind };
-                        if !self.opt_vars.contains(&v) {
-                            self.opt_vars.push(v);
-                        }
-                    }
-                });
-                ui.add_space(8.0);
-                ui.heading("Goals (weight 0 = ignore)");
-                egui::Grid::new("goals").show(ui, |ui| {
-                    ui.label("Low SWR");
-                    ui.add(egui::Slider::new(&mut self.goals.w_swr, 0.0..=10.0));
-                    ui.end_row();
-                    ui.label("jX close to 0");
-                    ui.add(egui::Slider::new(&mut self.goals.w_jx, 0.0..=10.0));
-                    ui.end_row();
-                    ui.label("High gain");
-                    ui.add(egui::Slider::new(&mut self.goals.w_ga, 0.0..=10.0));
-                    ui.end_row();
-                    ui.label("High F/B");
-                    ui.add(egui::Slider::new(&mut self.goals.w_fb, 0.0..=10.0));
-                    ui.end_row();
-                    ui.label("Most steps");
-                    ui.add(crate::num::Num::new(&mut self.goals.max_iter).range(1..=1000));
-                    ui.end_row();
-                    ui.label("Threads");
-                    ui.add(egui::Slider::new(&mut self.threads, 1..=self.max_threads));
-                    ui.end_row();
-                });
-                ui.label(format!("At {:.3} MHz, SWR against {:.0} Ω.", self.ant.freq_mhz, self.ant.z0));
-                ui.add_space(6.0);
-                let running = matches!(self.job, Some(Job::Opt(..)));
-                ui.horizontal(|ui| {
-                    if ui.add_enabled(!self.busy() && !self.opt_vars.is_empty(), egui::Button::new(RichText::new("▶ Start").size(16.0))).clicked() {
-                        self.start_opt(ui.ctx());
-                    }
-                });
-                if running {
-                    progress::show(ui, &self.prog);
-                }
-                if let Some((a, txt)) = self.opt_result.clone() {
-                    ui.add_space(6.0);
-                    ui.label(txt);
-                    ui.horizontal(|ui| {
-                        if ui.button("✔ Use optimized antenna").clicked() {
-                            self.opt_backup = Some(self.ant.clone());
-                            self.ant = a;
-                            self.calc = None;
-                            self.opt_result = None;
-                            self.status = "Optimized antenna applied. Press Calculate to see it.".into();
-                        }
-                    });
-                }
-                if let Some(b) = self.opt_backup.clone() {
-                    if ui.button("↶ Go back to the antenna before optimizing").clicked() {
-                        self.ant = b;
-                        self.opt_backup = None;
-                        self.calc = None;
-                    }
+                ui.end_row();
+            }
+        });
+        if let Some(i) = del {
+            self.opt_vars.remove(i);
+        }
+        ui.horizontal(|ui| {
+            wire_pick(ui, "newvarw", &mut self.new_var_wire, nw.max(1));
+            egui::ComboBox::from_id_salt("newvark").selected_text(self.new_var_kind.label()).show_ui(ui, |ui| {
+                for k in VarKind::ALL {
+                    ui.selectable_value(&mut self.new_var_kind, k, k.label());
                 }
             });
+            if ui.button("➕ Add").clicked() && nw > 0 {
+                let v = OptVar { wire: self.new_var_wire.min(nw - 1), kind: self.new_var_kind };
+                if !self.opt_vars.contains(&v) {
+                    self.opt_vars.push(v);
+                }
+            }
         });
-        egui::CentralPanel::default().show(ui, |ui| {
-            ui.heading("Progress");
-            let avail = ui.available_size();
-            let cost: Vec<(f64, f64)> = self.opt_log.iter().map(|s| (s.iter as f64, s.cost)).collect();
-            plots::xy(ui, Vec2::new(avail.x - 4.0, 200.0), "Score (lower is better)", "step", &[Series { name: "score", color: plots::TOTAL, pts: cost, right: false }], None, None);
-            egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink([false, false]).show(ui, |ui| {
-                egui::Grid::new("optlog").striped(true).spacing([14.0, 2.0]).show(ui, |ui| {
-                    for h in ["Step", "Score", "R (Ω)", "jX (Ω)", "SWR", "Ga (dBi)", "F/B (dB)", "Calcs"] {
-                        ui.label(RichText::new(h).strong());
-                    }
+        ui.add_space(8.0);
+        ui.heading("Goals (weight 0 = ignore)");
+        egui::Grid::new("goals").show(ui, |ui| {
+            ui.label("Low SWR");
+            ui.add(egui::Slider::new(&mut self.goals.w_swr, 0.0..=10.0));
+            ui.end_row();
+            ui.label("jX close to 0");
+            ui.add(egui::Slider::new(&mut self.goals.w_jx, 0.0..=10.0));
+            ui.end_row();
+            ui.label("High gain");
+            ui.add(egui::Slider::new(&mut self.goals.w_ga, 0.0..=10.0));
+            ui.end_row();
+            ui.label("High F/B");
+            ui.add(egui::Slider::new(&mut self.goals.w_fb, 0.0..=10.0));
+            ui.end_row();
+            ui.label("Most steps");
+            ui.add(crate::num::Num::new(&mut self.goals.max_iter).range(1..=1000));
+            ui.end_row();
+            ui.label("Threads");
+            ui.add(egui::Slider::new(&mut self.threads, 1..=self.max_threads));
+            ui.end_row();
+        });
+        ui.label(format!("At {:.3} MHz, SWR against {:.0} Ω.", self.ant.freq_mhz, self.ant.z0));
+        ui.add_space(6.0);
+        let running = matches!(self.job, Some(Job::Opt(..)));
+        ui.horizontal(|ui| {
+            if ui.add_enabled(!self.busy() && !self.opt_vars.is_empty(), egui::Button::new(RichText::new("▶ Start").size(16.0))).clicked() {
+                self.start_opt(ui.ctx());
+            }
+        });
+        if running {
+            progress::show(ui, &self.prog);
+        }
+        if let Some((a, txt)) = self.opt_result.clone() {
+            ui.add_space(6.0);
+            ui.label(txt);
+            ui.horizontal(|ui| {
+                if ui.button("✔ Use optimized antenna").clicked() {
+                    self.opt_backup = Some(self.ant.clone());
+                    self.ant = a;
+                    self.calc = None;
+                    self.opt_result = None;
+                    self.status = "Optimized antenna applied. Press Calculate to see it.".into();
+                }
+            });
+        }
+        if let Some(b) = self.opt_backup.clone() {
+            if ui.button("↶ Go back to the antenna before optimizing").clicked() {
+                self.ant = b;
+                self.opt_backup = None;
+                self.calc = None;
+            }
+        }
+    }
+
+    /// The optimizer's score plot and step log.
+    fn opt_progress(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Progress");
+        let avail = ui.available_size();
+        let cost: Vec<(f64, f64)> = self.opt_log.iter().map(|s| (s.iter as f64, s.cost)).collect();
+        plots::xy(ui, Vec2::new(avail.x - 4.0, 200.0), "Score (lower is better)", "step", &[Series { name: "score", color: plots::TOTAL, pts: cost, right: false }], None, None);
+        let area = if narrow(ui.ctx()) { egui::ScrollArea::horizontal() } else { egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink([false, false]) };
+        area.show(ui, |ui| {
+            egui::Grid::new("optlog").striped(true).spacing([14.0, 2.0]).show(ui, |ui| {
+                for h in ["Step", "Score", "R (Ω)", "jX (Ω)", "SWR", "Ga (dBi)", "F/B (dB)", "Calcs"] {
+                    ui.label(RichText::new(h).strong());
+                }
+                ui.end_row();
+                for s in &self.opt_log {
+                    ui.label(format!("{}", s.iter));
+                    ui.label(format!("{:.4}", s.cost));
+                    ui.label(format!("{:.2}", s.r));
+                    ui.label(format!("{:.2}", s.x));
+                    ui.label(format!("{:.2}", s.swr));
+                    ui.label(if s.ga.is_finite() { format!("{:.2}", s.ga) } else { "—".into() });
+                    ui.label(if s.fb.is_finite() { format!("{:.2}", s.fb) } else { "—".into() });
+                    ui.label(format!("{}", s.evals));
                     ui.end_row();
-                    for s in &self.opt_log {
-                        ui.label(format!("{}", s.iter));
-                        ui.label(format!("{:.4}", s.cost));
-                        ui.label(format!("{:.2}", s.r));
-                        ui.label(format!("{:.2}", s.x));
-                        ui.label(format!("{:.2}", s.swr));
-                        ui.label(if s.ga.is_finite() { format!("{:.2}", s.ga) } else { "—".into() });
-                        ui.label(if s.fb.is_finite() { format!("{:.2}", s.fb) } else { "—".into() });
-                        ui.label(format!("{}", s.evals));
-                        ui.end_row();
-                    }
-                });
+                }
             });
         });
     }
@@ -2771,6 +2791,21 @@ fn scroll_range(extent: f32, zoom: f32, pan: f32) -> f32 {
 }
 
 /// Open a file in the desktop's default application, without waiting for it.
+/// Where a report went, for the status line. On Android the file is a copy in the app's
+/// own storage that the file picker then saves where the user chooses: give just its name.
+fn saved_where(p: &std::path::Path) -> String {
+    if cfg!(target_os = "android") {
+        p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+    } else {
+        p.display().to_string()
+    }
+}
+
+/// Opens a saved PDF in the desktop's viewer; the note to add to the status line if it can't.
+fn show_pdf(p: &std::path::Path) -> &'static str {
+    if cfg!(target_os = "android") || open_in_viewer(p) { "" } else { "; couldn't open a PDF viewer" }
+}
+
 fn open_in_viewer(p: &std::path::Path) -> bool {
     use std::process::{Command, Stdio};
     let mut c = if cfg!(target_os = "windows") {
