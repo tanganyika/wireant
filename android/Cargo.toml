@@ -32,6 +32,8 @@ jni = "0.21"
 
 [package.metadata.android]
 package = "radio.wireant"
+# the launcher icon (res/mipmap-*), made from ../packaging/wireant-1024.png
+resources = "res"
 build_targets = ["x86_64-linux-android", "aarch64-linux-android"]
 
 [package.metadata.android.sdk]
@@ -40,6 +42,7 @@ target_sdk_version = 35
 
 [package.metadata.android.application]
 label = "wireant"
+icon = "@mipmap/ic_launcher"
 # MainActivity.java (the file picker) is added to the APK by build-apk.sh
 has_code = true
 # no action bar: some phones (OnePlus, Android 13) otherwise reserve an empty 56 dp bar under the status bar
