@@ -150,6 +150,14 @@ impl Docs {
     }
 }
 
+/// Closes the activity; MainActivity.onDestroy then ends the process.
+pub fn quit(android: &AndroidApp) {
+    if let Err(e) = call(android, |env, act| env.call_method(act, "quit", "()V", &[]).map(|_| ())) {
+        log::error!("quit: {e}");
+        std::process::exit(0);
+    }
+}
+
 /// Runs f with a JNI env on this thread and the activity object; clears any Java exception.
 fn call<T>(android: &AndroidApp, f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<T>) -> jni::errors::Result<T> {
     // SAFETY: both pointers come from android-activity and live as long as the app

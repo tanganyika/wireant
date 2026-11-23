@@ -69,6 +69,8 @@ fn android_main(app: AndroidApp) {
     if let Err(e) = r {
         log::error!("eframe: {e}");
     }
+    // the event loop can't start again in this process, so don't leave it behind
+    std::process::exit(0);
 }
 
 /// egui's bundled fonts plus fallbacks for the symbols the desktop gets from system fonts
@@ -108,6 +110,13 @@ impl eframe::App for Insets {
         egui::Panel::bottom("android_nav_bar").exact_size(m.bottom).frame(egui::Frame::NONE).show(ui, |_| {});
         self.inner.ui(ui, frame);
         self.docs.frame(&self.android, &mut self.inner);
+        // File ▸ Quit: finish the activity rather than leave it running with no event loop
+        // and Android's Back gesture, which the native activity otherwise swallows
+        let back = ui.ctx().input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::BrowserBack));
+        if back || ui.ctx().input(|i| i.viewport().close_requested()) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            files::quit(&self.android);
+        }
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
