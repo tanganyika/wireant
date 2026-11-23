@@ -17,8 +17,7 @@ Stand-ins and shortcuts:
   first. `theme::touch` gives finger-sized targets and turns number fields into tap-to-type
   boxes, so swiping across them scrolls. Light or dark follows the phone.
 - Fonts: egui's bundled emoji fonts (`monochrome_emoji_fonts`), then Hack and Android's
-  `NotoSansSymbols-Regular-Subsetted.ttf` as fallbacks for ● ↶ → ∥ ⊥ ✘. 🧲 still shows as a box
-  (only in the colour emoji font).
+  `NotoSansSymbols-Regular-Subsetted.ttf` as fallbacks for ● ↶ → ∥ ⊥ ✘.
 - Signed with the SDK debug key.
 
 Build and run on the emulator or a phone:
