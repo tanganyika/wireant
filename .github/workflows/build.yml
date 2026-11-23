@@ -1,10 +1,10 @@
 # Tests and packages.
 #
-# Linux: tests and a package on every push to main and every pull request.
+# Linux and Android: tests and a package on every push to main and every pull request.
 # Windows and macOS: only for a version tag (v*) or when run by hand (Actions tab ->
 # Build -> Run workflow), as the Windows build takes about 15 minutes.
 # A version tag also makes a GitHub release with the packages: Linux .deb and .tar.gz,
-# Windows installer and portable .zip, macOS .dmg.
+# Windows installer and portable .zip, macOS .dmg, Android .apk.
 name: Build
 
 on:
@@ -55,6 +55,58 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: linux
+          path: dist/*
+
+  # An APK for 64-bit ARM phones and tablets (Android 8 and later), built by android/build-apk.sh.
+  # Signed with the ANDROID_KEYSTORE secret (the keystore file, base64) and
+  # ANDROID_KEYSTORE_PASSWORD; without them with a throwaway key, which installs fine but
+  # can't update an APK signed with any other key.
+  android:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: android
+      - name: cargo-apk
+        run: command -v cargo-apk || cargo install cargo-apk --locked --version 0.10.0
+      - name: Android SDK platform and build tools
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" >/dev/null
+          echo "ANDROID_NDK_ROOT=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
+      - name: Same version as the desktop
+        run: |
+          A=$(grep -m1 '^version' android/Cargo.toml | cut -d'"' -f2)
+          D=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          [ "$A" = "$D" ] || { echo "::error::android/Cargo.toml has version $A but Cargo.toml has $D"; exit 1; }
+      - name: Signing key
+        run: |
+          if [ -n "$ANDROID_KEYSTORE" ]; then
+            printf '%s' "$ANDROID_KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "KEYSTORE=$RUNNER_TEMP/release.jks" >> $GITHUB_ENV
+          else
+            echo "::notice::No ANDROID_KEYSTORE secret, so the APK is signed with a throwaway key"
+          fi
+      - run: android/build-apk.sh aarch64-linux-android
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'android' }}
+      - name: Package
+        run: |
+          VER=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          mkdir dist
+          cp android/target/release/apk/wireant.apk dist/wireant-$VER-android-arm64.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
           path: dist/*
 
   windows:
@@ -145,7 +197,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, windows, macos]
+    needs: [linux, android, windows, macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
