@@ -4,9 +4,7 @@ use crate::model::*;
 use crate::mom::{FullResult, Gain};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 
-pub const PLOT_BG: Color32 = Color32::from_rgb(252, 252, 248);
-pub const GRID: Color32 = Color32::from_rgb(200, 200, 205);
-pub const INK: Color32 = Color32::from_rgb(40, 40, 50);
+pub use crate::theme::{grid, ink, ink_soft, plot_bg};
 pub const TOTAL: Color32 = Color32::from_rgb(200, 30, 40);
 pub const HORC: Color32 = Color32::from_rgb(30, 90, 200);
 pub const VERC: Color32 = Color32::from_rgb(20, 150, 70);
@@ -108,21 +106,21 @@ pub fn polar(
 ) {
     let (resp, painter) = ui.allocate_painter(Vec2::new(size, size + 18.0 + 15.0 * info.len() as f32), Sense::click_and_drag());
     let rect = resp.rect;
-    painter.rect_filled(rect, 4.0, PLOT_BG);
-    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, GRID), StrokeKind::Inside);
-    painter.text(rect.left_top() + Vec2::new(8.0, 4.0), Align2::LEFT_TOP, title, FontId::proportional(14.0), INK);
+    painter.rect_filled(rect, 4.0, plot_bg());
+    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, grid()), StrokeKind::Inside);
+    painter.text(rect.left_top() + Vec2::new(8.0, 4.0), Align2::LEFT_TOP, title, FontId::proportional(14.0), ink());
     let c = Pos2::new(rect.center().x, rect.top() + 22.0 + (size - 26.0) / 2.0);
     let r0 = (size - 46.0) / 2.0;
     let small = FontId::proportional(10.0);
     let la = 70f32.to_radians();
     for (db, lab) in [(0.0, ""), (-3.0, "-3"), (-6.0, "-6"), (-10.0, "-10"), (-20.0, "-20"), (-30.0, "-30")] {
         let rr = r0 * radius_frac(db);
-        painter.circle_stroke(c, rr, Stroke::new(if db == 0.0 { 1.2 } else { 0.6 }, GRID));
+        painter.circle_stroke(c, rr, Stroke::new(if db == 0.0 { 1.2 } else { 0.6 }, grid()));
         painter.text(c + Vec2::new(la.cos(), -la.sin()) * rr, Align2::LEFT_BOTTOM, lab, small.clone(), Color32::GRAY);
     }
     for k in 0..12 {
         let a = (k as f32 * 30.0).to_radians();
-        painter.line_segment([c, c + Vec2::new(a.cos(), -a.sin()) * r0], Stroke::new(0.5, GRID));
+        painter.line_segment([c, c + Vec2::new(a.cos(), -a.sin()) * r0], Stroke::new(0.5, grid()));
     }
     if let PolarKind::Elevation { ground: true } = kind {
         painter.line_segment([c - Vec2::new(r0, 0.0), c + Vec2::new(r0, 0.0)], Stroke::new(1.5, Color32::from_rgb(140, 110, 70)));
@@ -134,7 +132,7 @@ pub fn polar(
     for (a, l) in labels {
         let ar = a.to_radians();
         let p = c + Vec2::new(ar.cos(), -ar.sin()) * (r0 + 9.0);
-        painter.text(p, Align2::CENTER_CENTER, l, small.clone(), Color32::DARK_GRAY);
+        painter.text(p, Align2::CENTER_CENTER, l, small.clone(), ink_soft());
     }
     let gmax = data.iter().map(|(_, g)| g.total).fold(0.0f64, f64::max);
     if gmax > 0.0 {
@@ -223,7 +221,7 @@ pub fn polar(
         let x = rect.right() - 8.0;
         let mut yy = rect.top() + 4.0;
         for (i, l) in lines.iter().enumerate() {
-            painter.text(Pos2::new(x, yy), Align2::RIGHT_TOP, l, FontId::proportional(if i == 1 { 13.5 } else { 12.0 }), if i == 1 { mark } else { INK });
+            painter.text(Pos2::new(x, yy), Align2::RIGHT_TOP, l, FontId::proportional(if i == 1 { 13.5 } else { 12.0 }), if i == 1 { mark } else { ink() });
             yy += 16.0;
         }
     } else if resp.hovered() {
@@ -231,7 +229,7 @@ pub fn polar(
     }
     let mut y = c.y + r0 + 18.0;
     for line in info {
-        painter.text(Pos2::new(rect.left() + 8.0, y), Align2::LEFT_TOP, line, FontId::proportional(12.0), INK);
+        painter.text(Pos2::new(rect.left() + 8.0, y), Align2::LEFT_TOP, line, FontId::proportional(12.0), ink());
         y += 15.0;
     }
 }
@@ -269,10 +267,10 @@ pub(crate) fn ticks(a: f64, b: f64, step: f64) -> impl Iterator<Item = f64> {
 pub fn xy(ui: &mut egui::Ui, size: Vec2, title: &str, xlabel: &str, series: &[Series], fixed: Option<(f64, f64)>, marker: Option<f64>) {
     let (resp, painter) = ui.allocate_painter(size, Sense::hover());
     let rect = resp.rect;
-    painter.rect_filled(rect, 4.0, PLOT_BG);
-    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, GRID), StrokeKind::Inside);
+    painter.rect_filled(rect, 4.0, plot_bg());
+    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, grid()), StrokeKind::Inside);
     let plot = Rect::from_min_max(rect.min + Vec2::new(52.0, 24.0), rect.max - Vec2::new(52.0, 26.0));
-    painter.text(rect.left_top() + Vec2::new(8.0, 4.0), Align2::LEFT_TOP, title, FontId::proportional(14.0), INK);
+    painter.text(rect.left_top() + Vec2::new(8.0, 4.0), Align2::LEFT_TOP, title, FontId::proportional(14.0), ink());
     let all: Vec<&(f64, f64)> = series.iter().flat_map(|s| s.pts.iter()).filter(|p| p.1.is_finite()).collect();
     if all.is_empty() {
         painter.text(rect.center(), Align2::CENTER_CENTER, "No data yet", FontId::proportional(13.0), Color32::GRAY);
@@ -302,22 +300,22 @@ pub fn xy(ui: &mut egui::Ui, size: Vec2, title: &str, xlabel: &str, series: &[Se
     for gx in ticks(gx0, gx1, gstep) {
         if gx >= x0 - 1e-9 && gx <= x1 + 1e-9 {
             let x = xs(gx);
-            painter.line_segment([Pos2::new(x, plot.top()), Pos2::new(x, plot.bottom())], Stroke::new(0.5, GRID));
-            painter.text(Pos2::new(x, plot.bottom() + 3.0), Align2::CENTER_TOP, format!("{}", trim(gx)), small.clone(), Color32::DARK_GRAY);
+            painter.line_segment([Pos2::new(x, plot.top()), Pos2::new(x, plot.bottom())], Stroke::new(0.5, grid()));
+            painter.text(Pos2::new(x, plot.bottom() + 3.0), Align2::CENTER_TOP, format!("{}", trim(gx)), small.clone(), ink_soft());
         }
     }
-    painter.text(Pos2::new(plot.center().x, rect.bottom() - 3.0), Align2::CENTER_BOTTOM, xlabel, small.clone(), Color32::DARK_GRAY);
+    painter.text(Pos2::new(plot.center().x, rect.bottom() - 3.0), Align2::CENTER_BOTTOM, xlabel, small.clone(), ink_soft());
     if let Some((a, b, st)) = ly {
         for v in ticks(a, b, st) {
             let y = plot.bottom() - ((v - a) / (b - a)) as f32 * plot.height();
-            painter.line_segment([Pos2::new(plot.left(), y), Pos2::new(plot.right(), y)], Stroke::new(0.5, GRID));
-            painter.text(Pos2::new(plot.left() - 4.0, y), Align2::RIGHT_CENTER, trim(v), small.clone(), Color32::DARK_GRAY);
+            painter.line_segment([Pos2::new(plot.left(), y), Pos2::new(plot.right(), y)], Stroke::new(0.5, grid()));
+            painter.text(Pos2::new(plot.left() - 4.0, y), Align2::RIGHT_CENTER, trim(v), small.clone(), ink_soft());
         }
     }
     if let Some((a, b, st)) = ry {
         for v in ticks(a, b, st) {
             let y = plot.bottom() - ((v - a) / (b - a)) as f32 * plot.height();
-            painter.text(Pos2::new(plot.right() + 4.0, y), Align2::LEFT_CENTER, trim(v), small.clone(), Color32::DARK_GRAY);
+            painter.text(Pos2::new(plot.right() + 4.0, y), Align2::LEFT_CENTER, trim(v), small.clone(), ink_soft());
         }
     }
     painter.rect_stroke(plot, 0.0, Stroke::new(1.0, Color32::GRAY), StrokeKind::Middle);
@@ -480,8 +478,8 @@ pub fn view3d(ui: &mut egui::Ui, size: Vec2, ant: &Antenna, calc: Option<&FullRe
     let mut edits = Vec::new();
     let (resp, painter) = ui.allocate_painter(size, Sense::click_and_drag());
     let rect = resp.rect;
-    painter.rect_filled(rect, 4.0, Color32::from_rgb(246, 248, 252));
-    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, GRID), StrokeKind::Inside);
+    painter.rect_filled(rect, 4.0, crate::theme::view_bg());
+    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, grid()), StrokeKind::Inside);
     let ctrl = ui.input(|i| i.modifiers.command);
     if resp.dragged_by(egui::PointerButton::Primary) && (!st.draw || (ctrl && st.drag.is_none())) {
         let d = resp.drag_delta();
@@ -681,7 +679,7 @@ pub fn view3d(ui: &mut egui::Ui, size: Vec2, ant: &Antenna, calc: Option<&FullRe
         }
         if st.show_segments {
             for (a, _, _) in v {
-                painter.circle_filled(proj(*a), 1.6, Color32::from_rgb(90, 90, 100));
+                painter.circle_filled(proj(*a), 1.6, ink_soft());
             }
         }
     } else if let (true, Some(c)) = (imax > 0.0, calc_ok) {
@@ -700,7 +698,7 @@ pub fn view3d(ui: &mut egui::Ui, size: Vec2, ant: &Antenna, calc: Option<&FullRe
     if st.show_segments {
         if let Some(c) = calc_ok {
             for s in &c.mesh.segs {
-                painter.circle_filled(proj(s.a), 1.6, Color32::from_rgb(90, 90, 100));
+                painter.circle_filled(proj(s.a), 1.6, ink_soft());
             }
         }
     }
@@ -709,7 +707,7 @@ pub fn view3d(ui: &mut egui::Ui, size: Vec2, ant: &Antenna, calc: Option<&FullRe
     };
     if st.show_labels {
         for (i, w) in ant.wires.iter().enumerate() {
-            painter.text(proj(at(w, 0.5)) + Vec2::new(4.0, -4.0), Align2::LEFT_BOTTOM, format!("{}", i + 1), FontId::proportional(10.0), Color32::from_rgb(90, 90, 120));
+            painter.text(proj(at(w, 0.5)) + Vec2::new(4.0, -4.0), Align2::LEFT_BOTTOM, format!("{}", i + 1), FontId::proportional(10.0), ink_soft());
         }
     }
     // plates: a translucent fill with their outline
@@ -797,7 +795,7 @@ pub fn view3d(ui: &mut egui::Ui, size: Vec2, ant: &Antenna, calc: Option<&FullRe
         } else {
             "\nclick: zoom in here   right-click: edit this wire"
         };
-        painter.text(rect.left_top() + Vec2::new(10.0, 8.0), Align2::LEFT_TOP, txt, FontId::proportional(12.0), INK);
+        painter.text(rect.left_top() + Vec2::new(10.0, 8.0), Align2::LEFT_TOP, txt, FontId::proportional(12.0), ink());
     }
     // scale bar
     {
@@ -807,11 +805,11 @@ pub fn view3d(ui: &mut egui::Ui, size: Vec2, ant: &Antenna, calc: Option<&FullRe
         let px = (len_m * sc) as f32;
         let y = rect.bottom() - 32.0;
         let x0 = rect.right() - 150.0 - px;
-        painter.line_segment([Pos2::new(x0, y), Pos2::new(x0 + px, y)], Stroke::new(2.0, INK));
-        painter.line_segment([Pos2::new(x0, y - 4.0), Pos2::new(x0, y + 4.0)], Stroke::new(1.5, INK));
-        painter.line_segment([Pos2::new(x0 + px, y - 4.0), Pos2::new(x0 + px, y + 4.0)], Stroke::new(1.5, INK));
+        painter.line_segment([Pos2::new(x0, y), Pos2::new(x0 + px, y)], Stroke::new(2.0, ink()));
+        painter.line_segment([Pos2::new(x0, y - 4.0), Pos2::new(x0, y + 4.0)], Stroke::new(1.5, ink()));
+        painter.line_segment([Pos2::new(x0 + px, y - 4.0), Pos2::new(x0 + px, y + 4.0)], Stroke::new(1.5, ink()));
         let label = if len_m >= 1.0 { format!("{} m", len_m) } else if len_m >= 0.01 { format!("{} cm", (len_m * 100.0 * 1000.0).round() / 1000.0) } else { format!("{} mm", (len_m * 1000.0 * 1000.0).round() / 1000.0) };
-        painter.text(Pos2::new(x0 + px / 2.0, y - 6.0), Align2::CENTER_BOTTOM, label, FontId::proportional(11.0), INK);
+        painter.text(Pos2::new(x0 + px / 2.0, y - 6.0), Align2::CENTER_BOTTOM, label, FontId::proportional(11.0), ink());
     }
     let hint = if st.draw && st.adding {
         "NEW WIRE: drag to draw (from a wire end to join it)   Ctrl+drag: rotate   right-drag: move view   right-click a wire: edit   Ctrl+Z: undo"
@@ -828,7 +826,7 @@ pub fn view3d(ui: &mut egui::Ui, size: Vec2, ant: &Antenna, calc: Option<&FullRe
             let t = k as f32 / 99.0;
             painter.line_segment([Pos2::new(x + k as f32, y), Pos2::new(x + k as f32, y - 8.0)], Stroke::new(1.0, heat(t)));
         }
-        painter.text(Pos2::new(x, y - 10.0), Align2::LEFT_BOTTOM, "current: low → high", FontId::proportional(10.0), Color32::DARK_GRAY);
+        painter.text(Pos2::new(x, y - 10.0), Align2::LEFT_BOTTOM, "current: low → high", FontId::proportional(10.0), ink_soft());
     }
     let _ = edit;
     edits
@@ -1075,10 +1073,10 @@ fn draw_overlay(painter: &egui::Painter, rect: Rect, ant: &Antenna, dz: f64, pro
     painter.circle_filled(w3(b), 4.0, DRAW);
     let txt = format!("{what}: length {:.3} m\n{} → {}", dist3(a, b), fmt(a), fmt(b));
     let at = w3(b) + Vec2::new(12.0, -12.0);
-    let galley = painter.layout_no_wrap(txt, FontId::proportional(12.0), INK);
+    let galley = painter.layout_no_wrap(txt, FontId::proportional(12.0), ink());
     let r = Rect::from_min_size(at - Vec2::new(0.0, galley.size().y), galley.size()).expand(4.0);
-    painter.rect_filled(r, 3.0, Color32::from_rgba_unmultiplied(255, 255, 255, 230));
-    painter.galley(r.min + Vec2::splat(4.0), galley, INK);
+    painter.rect_filled(r, 3.0, crate::theme::label_bg());
+    painter.galley(r.min + Vec2::splat(4.0), galley, ink());
 }
 
 // ------------------------------------------------------------------ 3D pattern
@@ -1094,8 +1092,8 @@ pub fn pattern3d(ui: &mut egui::Ui, size: Vec2, p: &crate::mom::Patterns, st: &m
     use egui::epaint::{Mesh, Vertex, WHITE_UV};
     let (resp, painter) = ui.allocate_painter(size, Sense::click_and_drag());
     let rect = resp.rect;
-    painter.rect_filled(rect, 4.0, Color32::from_rgb(246, 248, 252));
-    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, GRID), StrokeKind::Inside);
+    painter.rect_filled(rect, 4.0, crate::theme::view_bg());
+    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, grid()), StrokeKind::Inside);
     if resp.dragged_by(egui::PointerButton::Primary) {
         let d = resp.drag_delta();
         st.yaw += d.x * 0.01;
@@ -1213,7 +1211,7 @@ pub fn pattern3d(ui: &mut egui::Ui, size: Vec2, p: &crate::mom::Patterns, st: &m
     }
     items.sort_by(|x, y| y.0.partial_cmp(&x.0).unwrap_or(std::cmp::Ordering::Equal));
     let mut mesh = Mesh::default();
-    let line_col = Color32::from_rgba_unmultiplied(30, 30, 30, 110);
+    let line_col = crate::theme::mesh();
     for (_, item) in &items {
         match item {
             Item::Quad(t, g) => {
@@ -1270,7 +1268,7 @@ pub fn pattern3d(ui: &mut egui::Ui, size: Vec2, p: &crate::mom::Patterns, st: &m
                 Align2::RIGHT_TOP,
                 format!("Az angle = {:.0}°,  Ev angle = {:.0}°\nG = {:.1} dBi  ({:+.1} dB)", j as f64 * p.grid_step, p.grid_els[i], cursor_db(db(g)), cursor_db(db(g)) - maxdb),
                 FontId::proportional(13.0),
-                INK,
+                ink(),
             );
         }
     }
@@ -1281,7 +1279,7 @@ pub fn pattern3d(ui: &mut egui::Ui, size: Vec2, p: &crate::mom::Patterns, st: &m
         let t = k as f32 / 119.0;
         painter.line_segment([Pos2::new(x + k as f32, y), Pos2::new(x + k as f32, y - 9.0)], Stroke::new(1.0, heat(t)));
     }
-    painter.text(Pos2::new(x, y - 11.0), Align2::LEFT_BOTTOM, format!("{:.0} dB … max {:.1} dBi  ({} scale)", floor, maxdb, rscale.label()), FontId::proportional(11.0), Color32::DARK_GRAY);
+    painter.text(Pos2::new(x, y - 11.0), Align2::LEFT_BOTTOM, format!("{:.0} dB … max {:.1} dBi  ({} scale)", floor, maxdb, rscale.label()), FontId::proportional(11.0), ink_soft());
     painter.text(rect.left_bottom() + Vec2::new(140.0, -6.0), Align2::LEFT_BOTTOM, "drag: rotate   right-drag: move   wheel: zoom   double-click: reset   hover: read gain", FontId::proportional(10.0), Color32::GRAY);
 }
 

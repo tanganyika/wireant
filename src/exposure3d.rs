@@ -300,8 +300,8 @@ pub struct Shell<'a> {
 pub fn draw(ui: &mut egui::Ui, size: Vec2, vol: &Volume, shells: &[Shell], v: &mut View3) {
     let (resp, painter) = ui.allocate_painter(size, Sense::click_and_drag());
     let rect = resp.rect;
-    painter.rect_filled(rect, 4.0, Color32::from_rgb(246, 248, 252));
-    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, crate::plots::GRID), egui::StrokeKind::Inside);
+    painter.rect_filled(rect, 4.0, crate::theme::view_bg());
+    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, crate::plots::grid()), egui::StrokeKind::Inside);
     if resp.dragged_by(egui::PointerButton::Primary) {
         let d = resp.drag_delta();
         v.yaw += d.x * 0.01;

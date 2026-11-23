@@ -27,6 +27,8 @@
 #[path = "../../src/pdf.rs"] mod pdf;
 #[path = "../../src/report.rs"] mod report;
 #[path = "../../src/settings.rs"] mod settings;
+#[path = "../../src/theme.rs"] mod theme;
+#[path = "../../src/num.rs"] mod num;
 mod files;
 
 use eframe::egui;
@@ -57,12 +59,12 @@ fn android_main(app: AndroidApp) {
         ..Default::default()
     };
     let r = eframe::run_native("wireant", options, Box::new(|cc| {
-        // the desktop layout needs about 1200 points across; shrink the UI a little so a
-        // landscape phone shows all of it (a real port would rearrange it instead)
-        cc.egui_ctx.set_zoom_factor(0.75);
         cc.egui_ctx.set_fonts(fonts());
         files::set_context(&cc.egui_ctx);
-        Ok(Box::new(Insets { inner: app::App::new(cc, None, None, None), android: app, docs: files::Docs::default() }))
+        let inner = app::App::new(cc, None, None, None);
+        // after App::new, which sets the shared theme: finger-sized targets
+        theme::touch(&cc.egui_ctx);
+        Ok(Box::new(Insets { inner, android: app, docs: files::Docs::default() }))
     }));
     if let Err(e) = r {
         log::error!("eframe: {e}");

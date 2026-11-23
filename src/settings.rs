@@ -32,13 +32,15 @@ pub struct Settings {
     pub locator: String,
     /// Compass bearing of the model's +x axis on the great circle map.
     pub x_bearing: f64,
+    /// "light", "dark", or empty to follow the system.
+    pub theme: String,
 }
 
 pub const DEFAULT_NEC_ARGS: &str = "{in} {out}";
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { last_dir: None, last_file: None, open_last: false, calc_on_open: false, default_engine: None, nec_path: String::new(), nec_args: DEFAULT_NEC_ARGS.into(), nec_stdin: false, nec_jobs: 0, locator: String::new(), x_bearing: 0.0 }
+        Settings { last_dir: None, last_file: None, open_last: false, calc_on_open: false, default_engine: None, nec_path: String::new(), nec_args: DEFAULT_NEC_ARGS.into(), nec_stdin: false, nec_jobs: 0, locator: String::new(), x_bearing: 0.0, theme: String::new() }
     }
 }
 
@@ -78,6 +80,7 @@ impl Settings {
                 "nec_jobs" => s.nec_jobs = v.trim().parse().unwrap_or(0),
                 "locator" => s.locator = v.trim().to_string(),
                 "x_bearing" => s.x_bearing = v.trim().parse().unwrap_or(0.0),
+                "theme" => s.theme = v.trim().to_ascii_lowercase(),
                 _ => {}
             }
         }
@@ -103,6 +106,9 @@ impl Settings {
         }
         if self.x_bearing != 0.0 {
             t += &format!("x_bearing={}\n", self.x_bearing);
+        }
+        if !self.theme.is_empty() {
+            t += &format!("theme={}\n", self.theme);
         }
         t
     }
@@ -171,6 +177,7 @@ mod tests {
             nec_jobs: 4,
             locator: "IO91wm".into(),
             x_bearing: 112.5,
+            theme: "dark".into(),
         };
         assert_eq!(Settings::parse(&s.format()), s);
         // the old file held only last_dir

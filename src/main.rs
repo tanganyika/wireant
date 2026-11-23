@@ -25,6 +25,8 @@ mod tools;
 mod pdf;
 mod report;
 mod settings;
+mod theme;
+mod num;
 
 use std::path::PathBuf;
 

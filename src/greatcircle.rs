@@ -7,7 +7,7 @@
 
 use crate::mom::{FullResult, Gain};
 use crate::model::Antenna;
-use crate::plots::{radius_frac, GRID, INK, PLOT_BG, TOTAL};
+use crate::plots::{grid, ink, ink_soft, plot_bg, radius_frac, TOTAL};
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, RichText, Sense, Shape, Stroke, StrokeKind, Vec2};
 use std::f64::consts::PI;
 
@@ -187,7 +187,7 @@ pub fn window(ctx: &egui::Context, st: &mut GreatCircleState, ant: &Antenna, cal
             ui.separator();
             ui.label("+x axis points to");
             let mut b = st.x_bearing;
-            if ui.add(egui::DragValue::new(&mut b).speed(1.0).range(-360.0..=720.0).suffix("°")).on_hover_text("Compass bearing of the model's +x axis. You can also drag the N arrow on the top view, or click the map to aim the beam there.").changed() {
+            if ui.add(crate::num::Num::new(&mut b).speed(1.0).range(-360.0..=720.0).suffix("°")).on_hover_text("Compass bearing of the model's +x axis. You can also drag the N arrow on the top view, or click the map to aim the beam there.").changed() {
                 st.set_x_bearing(b);
             }
             ui.separator();
@@ -223,9 +223,9 @@ fn top_view(ui: &mut egui::Ui, st: &mut GreatCircleState, ant: &Antenna) {
     let size = 240.0;
     let (resp, painter) = ui.allocate_painter(Vec2::splat(size), Sense::click_and_drag());
     let rect = resp.rect;
-    painter.rect_filled(rect, 4.0, PLOT_BG);
-    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, GRID), StrokeKind::Inside);
-    painter.text(rect.left_top() + Vec2::new(8.0, 4.0), Align2::LEFT_TOP, "Top view", FontId::proportional(14.0), INK);
+    painter.rect_filled(rect, 4.0, plot_bg());
+    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, grid()), StrokeKind::Inside);
+    painter.text(rect.left_top() + Vec2::new(8.0, 4.0), Align2::LEFT_TOP, "Top view", FontId::proportional(14.0), ink());
     let c = rect.center() + Vec2::new(0.0, 8.0);
     let r0 = size * 0.36;
     // fit the wires, centred on their middle
@@ -243,7 +243,7 @@ fn top_view(ui: &mut egui::Ui, st: &mut GreatCircleState, ant: &Antenna) {
         let k = r0 as f64 * 0.95 / half;
         let to = |p: [f64; 3]| c + Vec2::new(((p[0] - mid[0]) * k) as f32, (-(p[1] - mid[1]) * k) as f32);
         for w in &ant.wires {
-            painter.line_segment([to(w.p1), to(w.p2)], Stroke::new(2.0, INK));
+            painter.line_segment([to(w.p1), to(w.p2)], Stroke::new(2.0, ink()));
         }
     }
     // model axes
@@ -273,8 +273,8 @@ fn world_map(ui: &mut egui::Ui, st: &mut GreatCircleState, home: Option<(f64, f6
     let size = (ui.available_width() - 4.0).clamp(360.0, 640.0);
     let (resp, painter) = ui.allocate_painter(Vec2::new(size, size + 20.0), Sense::click());
     let rect = resp.rect;
-    painter.rect_filled(rect, 4.0, PLOT_BG);
-    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, GRID), StrokeKind::Inside);
+    painter.rect_filled(rect, 4.0, plot_bg());
+    painter.rect_stroke(rect, 4.0, Stroke::new(1.0, grid()), StrokeKind::Inside);
     let c = Pos2::new(rect.center().x, rect.top() + size / 2.0);
     let r0 = size / 2.0 - 22.0;
     painter.circle_filled(c, r0, SEA);
@@ -287,13 +287,13 @@ fn world_map(ui: &mut egui::Ui, st: &mut GreatCircleState, home: Option<(f64, f6
     let small = FontId::proportional(10.0);
     for km in [5000.0, 10000.0, 15000.0] {
         let rr = r0 * (km / EARTH_KM / PI) as f32;
-        painter.circle_stroke(c, rr, Stroke::new(0.6, GRID));
+        painter.circle_stroke(c, rr, Stroke::new(0.6, grid()));
         painter.text(c + Vec2::new(3.0, -rr), Align2::LEFT_BOTTOM, format!("{} km", km as u32), small.clone(), Color32::GRAY);
     }
     for k in 0..12 {
         let a = (k as f32 * 30.0).to_radians();
         let d = Vec2::new(a.sin(), -a.cos());
-        painter.line_segment([c, c + d * r0], Stroke::new(0.5, GRID));
+        painter.line_segment([c, c + d * r0], Stroke::new(0.5, grid()));
         let lab = match k {
             0 => "N".to_string(),
             3 => "E".to_string(),
@@ -301,7 +301,7 @@ fn world_map(ui: &mut egui::Ui, st: &mut GreatCircleState, home: Option<(f64, f6
             9 => "W".to_string(),
             _ => format!("{}", k * 30),
         };
-        painter.text(c + d * (r0 + 10.0), Align2::CENTER_CENTER, lab, small.clone(), Color32::DARK_GRAY);
+        painter.text(c + d * (r0 + 10.0), Align2::CENTER_CENTER, lab, small.clone(), ink_soft());
     }
     // coastlines; a segment that jumps across the map lies near the antipode
     for line in coastlines() {
@@ -322,7 +322,7 @@ fn world_map(ui: &mut egui::Ui, st: &mut GreatCircleState, home: Option<(f64, f6
             painter.add(Shape::line(run, Stroke::new(1.0, COAST)));
         }
     }
-    painter.circle_stroke(c, r0, Stroke::new(1.2, GRID));
+    painter.circle_stroke(c, r0, Stroke::new(1.2, grid()));
     // the pattern, turned to the compass
     if let Some(calc) = calc {
         let cut: Vec<&(f64, Gain)> = calc.patterns.az_cut.iter().filter(|(a, _)| *a < 360.0).collect();
@@ -386,7 +386,7 @@ fn world_map(ui: &mut egui::Ui, st: &mut GreatCircleState, home: Option<(f64, f6
             }
         }
     }
-    painter.text(Pos2::new(rect.left() + 8.0, rect.bottom() - 6.0), Align2::LEFT_BOTTOM, info, FontId::proportional(12.0), INK);
+    painter.text(Pos2::new(rect.left() + 8.0, rect.bottom() - 6.0), Align2::LEFT_BOTTOM, info, FontId::proportional(12.0), ink());
 }
 
 #[cfg(test)]

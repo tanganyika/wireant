@@ -311,17 +311,17 @@ pub fn window(ctx: &egui::Context, st: &mut StackState, ant: &Antenna) -> Option
         let lambda = ant.lambda();
         egui::Grid::new("stack_in").spacing([10.0, 6.0]).show(ui, |ui| {
             ui.label("Stacked");
-            ui.add(egui::DragValue::new(&mut st.layout.n_stack).range(1..=8).suffix(" high"));
-            ui.add_enabled(st.layout.n_stack > 1, egui::DragValue::new(&mut st.layout.d_stack).speed(0.01).range(0.0..=1000.0).suffix(" m apart"));
+            ui.add(crate::num::Num::new(&mut st.layout.n_stack).range(1..=8).suffix(" high"));
+            ui.add_enabled(st.layout.n_stack > 1, crate::num::Num::new(&mut st.layout.d_stack).speed(0.01).range(0.0..=1000.0).suffix(" m apart"));
             ui.label(RichText::new(format!("{:.2} λ", st.layout.d_stack / lambda)).color(Color32::GRAY));
             ui.end_row();
             ui.label("Bayed");
-            ui.add(egui::DragValue::new(&mut st.layout.n_bay).range(1..=8).suffix(" wide"));
-            ui.add_enabled(st.layout.n_bay > 1, egui::DragValue::new(&mut st.layout.d_bay).speed(0.01).range(0.0..=1000.0).suffix(" m apart"));
+            ui.add(crate::num::Num::new(&mut st.layout.n_bay).range(1..=8).suffix(" wide"));
+            ui.add_enabled(st.layout.n_bay > 1, crate::num::Num::new(&mut st.layout.d_bay).speed(0.01).range(0.0..=1000.0).suffix(" m apart"));
             ui.label(RichText::new(format!("{:.2} λ", st.layout.d_bay / lambda)).color(Color32::GRAY));
             ui.end_row();
             ui.label("Beam towards");
-            ui.add(egui::DragValue::new(&mut st.layout.beam_az).speed(1.0).range(0.0..=359.9).suffix("° azimuth"))
+            ui.add(crate::num::Num::new(&mut st.layout.beam_az).speed(1.0).range(0.0..=359.9).suffix("° azimuth"))
                 .on_hover_text("Bayed copies sit side by side across this direction.");
             ui.end_row();
         });

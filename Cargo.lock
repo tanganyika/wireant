@@ -4289,6 +4289,7 @@ dependencies = [
  "cc",
  "dirs",
  "eframe",
+ "egui",
  "image",
  "num-complex",
  "rayon",
