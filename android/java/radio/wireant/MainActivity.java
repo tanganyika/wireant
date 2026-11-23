@@ -53,6 +53,25 @@ public class MainActivity extends NativeActivity {
         }});
     }
 
+    /** Called from Rust (File ▸ Quit): close the app and remove it from the recent apps. */
+    public void quit() {
+        runOnUiThread(new Runnable() { public void run() {
+            finishAndRemoveTask();
+            // the Rust event loop has stopped, so the normal teardown would hang: end here
+            System.exit(0);
+        }});
+    }
+
+    @Override
+    protected void onDestroy() {
+        // Quit or Back: end the process. NativeActivity.onDestroy waits for the Rust thread,
+        // which never answers once its event loop is gone, so Android times out and the next
+        // launch hangs; and winit's event loop can only start once per process anyway.
+        // (Settings are saved as they change; a rotation or other restart isn't finishing.)
+        if (isFinishing()) System.exit(0);
+        super.onDestroy();
+    }
+
     /** Called from Rust: copy a local file to a document. Returns null or the error. */
     public String writeUri(String uri, String src) {
         try {
