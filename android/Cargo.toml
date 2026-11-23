@@ -1,6 +1,6 @@
 [package]
 name = "wireant-android"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 description = "wireant for Android (proof of concept): the desktop sources with an Android entry point"
 license = "GPL-3.0-or-later"
