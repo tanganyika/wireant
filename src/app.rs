@@ -30,12 +30,29 @@ macro_rules! card {
             .outer_margin(egui::Margin { left: 0, right: 0, top: 0, bottom: 8 })
             .show($ui, |$ui| {
                 $ui.set_min_width($ui.available_width());
-                egui::collapsing_header::CollapsingState::load_with_default_open($ui.ctx(), $ui.make_persistent_id($id), $open)
-                    .show_header($ui, |$h| {
-                        $h.label(RichText::new($title).heading());
+                let mut state = egui::collapsing_header::CollapsingState::load_with_default_open($ui.ctx(), $ui.make_persistent_id($id), $open);
+                if narrow($ui.ctx()) {
+                    // a phone: the title row wraps, so its buttons don't run off the screen
+                    $ui.horizontal_wrapped(|$h| {
+                        let w = $h.spacing().icon_width;
+                        let (_, icon) = $h.allocate_exact_size(egui::vec2(w, w), egui::Sense::click());
+                        let title = $h.add(egui::Label::new(RichText::new($title).heading()).sense(egui::Sense::click()));
+                        if icon.clicked() || title.clicked() {
+                            state.toggle($h);
+                        }
+                        let small = icon.clone().with_new_rect(egui::Rect::from_center_size(icon.rect.center(), egui::vec2(w, w) * 0.55));
+                        egui::collapsing_header::paint_default_icon($h, state.openness($h.ctx()), &small);
                         $head
-                    })
-                    .body_unindented(|$b| $body);
+                    });
+                    state.show_body_unindented($ui, |$b| $body);
+                } else {
+                    state
+                        .show_header($ui, |$h| {
+                            $h.label(RichText::new($title).heading());
+                            $head
+                        })
+                        .body_unindented(|$b| $body);
+                }
             });
     };
 }
@@ -1221,12 +1238,18 @@ impl App {
     // ------------------------------------------------------------------ geometry
 
     fn geometry(&mut self, ui: &mut egui::Ui) {
-        let ncols = if narrow(ui.ctx()) { 1 } else { 2 };
-        egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+        let phone = narrow(ui.ctx());
+        let ncols = if phone { 1 } else { 2 };
+        // a phone scrolls up and down only: everything below fits the width
+        let scroll = if phone { egui::ScrollArea::vertical() } else { egui::ScrollArea::both() };
+        scroll.auto_shrink([false, false]).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Name");
-                ui.add(egui::TextEdit::singleline(&mut self.ant.name).desired_width(320.0));
-                ui.separator();
+                let w = if phone { ui.available_width() - 8.0 } else { 320.0 };
+                ui.add(egui::TextEdit::singleline(&mut self.ant.name).desired_width(w));
+                if !phone {
+                    ui.separator();
+                }
                 ui.label("Frequency (MHz)");
                 if ui.add(crate::num::Num::new(&mut self.ant.freq_mhz).speed(0.01).range(0.01..=30000.0).max_decimals(4)).changed() {
                     self.reset_sweep_band();
@@ -1260,9 +1283,10 @@ impl App {
                             }
                             let pt = |p: [f64; 3]| format!("{:.3}, {:.3}, {:.3}", p[0], p[1], p[2]);
                             let resp = ui.vertical(|ui| {
+                                ui.set_max_width(ui.available_width() - 56.0); // room for 🗑
                                 let seg = if w.seg > 0 { format!(", {} segments", w.seg) } else { String::new() };
                                 ui.label(format!("{:.3} m, Ø {} mm{}", w.length(), short(w.r * 2000.0), seg));
-                                ui.label(RichText::new(format!("{}  →  {}", pt(w.p1), pt(w.p2))).small().weak());
+                                ui.add(egui::Label::new(RichText::new(format!("{}  →  {}", pt(w.p1), pt(w.p2))).small().weak()).wrap());
                             });
                             if ui.interact(resp.response.rect, ui.id().with(("wire_row", i)), egui::Sense::click()).clicked() {
                                 self.wire_edit = Some(i);
@@ -1325,7 +1349,7 @@ impl App {
                         }
                     });
                 }
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.label("Insulation for all wires:");
                     ui.add(crate::num::Num::new(&mut self.ins_all_mm).speed(0.01).range(0.0..=100.0).suffix(" mm"));
                     egui::ComboBox::from_id_salt("ins_mat")
@@ -1361,16 +1385,18 @@ impl App {
                     }
                 }, |ui| {
                     let mut del = None;
-                    egui::Grid::new("sources").striped(true).show(ui, |ui| {
-                        for h in ["Wire", "Position", "Phase (°)", "Value", "Type", ""] {
-                            ui.label(RichText::new(h).strong());
-                        }
-                        ui.end_row();
+                    egui::Grid::new("sources").striped(!phone).show(ui, |ui| {
+                        let mut c = Cols::new(ui, &["Wire", "Position", "Phase (°)", "Value", "Type", ""]);
                         for (i, s) in self.ant.sources.iter_mut().enumerate() {
+                            c.next(ui);
                             wire_pick(ui, ("sw", i), &mut s.wire, nw);
+                            c.next(ui);
                             pos_pick(ui, ("sp", i), &mut s.pos);
+                            c.next(ui);
                             ui.add(crate::num::Num::new(&mut s.phase_deg).speed(1.0).range(-360.0..=360.0));
+                            c.next(ui);
                             ui.add(crate::num::Num::new(&mut s.volts).speed(0.01).range(0.0..=1e6).suffix(if s.current { " A" } else { " V" }));
+                            c.next(ui);
                             egui::ComboBox::from_id_salt(("st", i))
                                 .selected_text(if s.current { "current" } else { "voltage" })
                                 .width(70.0)
@@ -1380,10 +1406,11 @@ impl App {
                                 })
                                 .response
                                 .on_hover_text("With several sources: a voltage source keeps its voltage, a current source its current (amps at this phase), as phased arrays are usually fed. With one source it makes no difference.");
+                            c.next(ui);
                             if ui.small_button("🗑").clicked() {
                                 del = Some(i);
                             }
-                            ui.end_row();
+                            c.end(ui);
                         }
                     });
                     if let Some(i) = del {
@@ -1407,45 +1434,68 @@ impl App {
                     }
                 }, |ui| {
                     let mut del = None;
-                    egui::Grid::new("loads").striped(true).show(ui, |ui| {
-                        for h in ["Wire", "Position", "Value", ""] {
-                            ui.label(RichText::new(h).strong());
-                        }
-                        ui.end_row();
+                    egui::Grid::new("loads").striped(!phone).show(ui, |ui| {
+                        let mut c = Cols::new(ui, &["Wire", "Position", "Value", ""]);
                         for (i, l) in self.ant.loads.iter_mut().enumerate() {
+                            c.next(ui);
                             wire_pick(ui, ("lw", i), &mut l.wire, nw);
+                            c.next(ui);
                             pos_pick(ui, ("lp", i), &mut l.pos);
-                            ui.horizontal(|ui| match &mut l.kind {
+                            c.next(ui);
+                            // the choke is a column of its own rows; the others a row that wraps on a phone
+                            let choke = matches!(l.kind, LoadKind::Choke(_));
+                            let cell = |ui: &mut egui::Ui, f: &mut dyn FnMut(&mut egui::Ui)| {
+                                if choke {
+                                    ui.vertical(|ui| f(ui));
+                                } else {
+                                    hrow(ui, phone, |ui| f(ui));
+                                }
+                            };
+                            cell(ui, &mut |ui| match &mut l.kind {
                                 LoadKind::Choke(c) => {
                                     ui.vertical(|ui| {
-                                        ui.horizontal(|ui| {
-                                            ui.add(crate::num::Num::new(&mut c.turns).speed(0.1).range(0.5..=200.0).max_decimals(1));
-                                            ui.label("turns, Ø");
-                                            mm_value(ui, &mut c.form_d, 1.0..=2000.0).on_hover_text("Diameter of the former the coax is wound on (mm)");
-                                            ui.label("mm, coax");
-                                            mm_value(ui, &mut c.coax_d, 0.5..=50.0).on_hover_text("Outer diameter of the coax (mm)");
-                                            ui.menu_button("mm ▾", |ui| {
-                                                for (name, d) in COAX {
-                                                    if ui.button(format!("{name}  ({} mm)", d * 1000.0)).clicked() {
-                                                        c.coax_d = d;
-                                                        ui.close();
-                                                    }
-                                                }
+                                        if phone {
+                                            // short rows of their own: a wrapped row in a grid cell overlaps the next
+                                            ui.horizontal(|ui| {
+                                                choke_turns(ui, c);
+                                                ui.label("turns");
                                             });
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label("length");
-                                            mm_value(ui, &mut c.length, 0.0..=5000.0).on_hover_text("Length of the winding (mm); 0 = turns touching");
-                                            ui.label("mm, Q");
-                                            ui.add(crate::num::Num::new(&mut c.q).speed(1.0).range(0.0..=1000.0)).on_hover_text(
-                                                "Losses of the coil: 0 = lossless. Measured air-wound coax chokes peak at a few kΩ, about Q 10–30.",
-                                            );
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label(RichText::new(format!("= {} µH ∥ {} pF, resonant {:.1} MHz", short(c.l_uh()), short(c.c_pf()), c.resonance_mhz())).weak()).on_hover_text(
-                                                "The coil's inductance (Nagaoka) and self-capacitance (Medhurst), modelled as a parallel trap: it blocks best around its resonance",
-                                            );
-                                        });
+                                            ui.horizontal(|ui| {
+                                                ui.label("former Ø");
+                                                choke_former(ui, c);
+                                                ui.label("mm");
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("coax Ø");
+                                                choke_coax(ui, c);
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("length");
+                                                choke_length(ui, c);
+                                                ui.label("mm");
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("Q");
+                                                choke_q(ui, c);
+                                            });
+                                        } else {
+                                            ui.horizontal(|ui| {
+                                                choke_turns(ui, c);
+                                                ui.label("turns, Ø");
+                                                choke_former(ui, c);
+                                                ui.label("mm, coax");
+                                                choke_coax(ui, c);
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label("length");
+                                                choke_length(ui, c);
+                                                ui.label("mm, Q");
+                                                choke_q(ui, c);
+                                            });
+                                        }
+                                        ui.add(egui::Label::new(RichText::new(format!("= {} µH ∥ {} pF, resonant {:.1} MHz", short(c.l_uh()), short(c.c_pf()), c.resonance_mhz())).weak()).wrap_mode(if phone { egui::TextWrapMode::Wrap } else { egui::TextWrapMode::Extend })).on_hover_text(
+                                            "The coil's inductance (Nagaoka) and self-capacitance (Medhurst), modelled as a parallel trap: it blocks best around its resonance",
+                                        );
                                     });
                                 }
                                 LoadKind::Rx { r, x } => {
@@ -1473,10 +1523,11 @@ impl App {
                                         .on_hover_text("0 = lossless. With both L and C set, they form a parallel trap.");
                                 }
                             });
+                            c.next(ui);
                             if ui.small_button("🗑").clicked() {
                                 del = Some(i);
                             }
-                            ui.end_row();
+                            c.end(ui);
                         }
                     });
                     if let Some(i) = del {
@@ -1494,31 +1545,39 @@ impl App {
                 ui.label(RichText::new("feed lines, phasing lines and stubs — wiremom and NEC-2 engines").weak());
                 if self.ant.lines.iter().any(|t| t.transformer.is_none()) {
                     let mut del = None;
-                    egui::Grid::new("lines").striped(true).show(ui, |ui| {
-                        for h in ["From wire", "Position", "To wire", "Position", "Z0 (Ω)", "Length (m)", "Vel. factor", "Loss (dB/100 m)", "Reversed", "Parts", ""] {
-                            ui.label(RichText::new(h).strong());
-                        }
-                        ui.end_row();
+                    egui::Grid::new("lines").striped(!phone).show(ui, |ui| {
+                        let mut c = Cols::new(ui, &["From wire", "Position", "To wire", "Position", "Z0 (Ω)", "Length (m)", "Vel. factor", "Loss (dB/100 m)", "Reversed", "Parts", ""]);
                         for (i, t) in self.ant.lines.iter_mut().enumerate().filter(|(_, t)| t.transformer.is_none()) {
+                            c.next(ui);
                             wire_pick(ui, ("taw", i), &mut t.a_wire, nw);
+                            c.next(ui);
                             pos_pick(ui, ("tap", i), &mut t.a_pos);
+                            c.next(ui);
                             wire_pick(ui, ("tbw", i), &mut t.b_wire, nw);
+                            c.next(ui);
                             pos_pick(ui, ("tbp", i), &mut t.b_pos);
                             // a lumped series part replaces the line: its line values are unused
                             let line = t.series.is_none();
+                            c.next(ui);
                             ui.add_enabled(line, crate::num::Num::new(&mut t.z0).speed(0.5).range(1.0..=10000.0));
+                            c.next(ui);
                             ui.add_enabled(line, crate::num::Num::new(&mut t.length).speed(0.01).range(0.0..=1e6).max_decimals(4))
                                 .on_hover_text("0 = the straight distance between the two ends");
+                            c.next(ui);
                             ui.add_enabled(line, crate::num::Num::new(&mut t.vf).speed(0.005).range(0.1..=1.0).max_decimals(3))
                                 .on_hover_text("Velocity factor: 1 for an air-spaced line, about 0.66 for solid-PE coax, 0.8 for foam");
+                            c.next(ui);
                             ui.add_enabled(line, crate::num::Num::new(&mut t.loss_db).speed(0.05).range(0.0..=100.0).max_decimals(2))
                                 .on_hover_text("Matched-line loss at the calculation frequency (NEC-2 ignores it)");
+                            c.next(ui);
                             ui.add_enabled(line, egui::Checkbox::new(&mut t.reversed, "")).on_hover_text("Conductors swapped at the far end (a half twist)");
+                            c.next(ui);
                             ui.label(parts_text(t)).on_hover_text("Lumped parts, from the Match calculator's \"Add to the antenna\". Delete the line to remove them.");
+                            c.next(ui);
                             if ui.small_button("🗑").clicked() {
                                 del = Some(i);
                             }
-                            ui.end_row();
+                            c.end(ui);
                         }
                     });
                     if let Some(i) = del {
@@ -1542,19 +1601,18 @@ impl App {
                 ui.label(RichText::new("flat conducting plates (reflectors, ground screens); a wire ending on a plate connects to it — wiremom engine").weak());
                 if !self.ant.plates.is_empty() {
                     let mut del = None;
-                    egui::Grid::new("plates").striped(true).show(ui, |ui| {
-                        for h in ["Corner X, Y, Z (m)", "Edge 1 dX, dY, dZ (m)", "Edge 2 dX, dY, dZ (m)", "Divisions", ""] {
-                            ui.label(RichText::new(h).strong());
-                        }
-                        ui.end_row();
+                    egui::Grid::new("plates").striped(!phone).show(ui, |ui| {
+                        let mut c = Cols::new(ui, &["Corner X, Y, Z (m)", "Edge 1 dX, dY, dZ (m)", "Edge 2 dX, dY, dZ (m)", "Divisions", ""]);
                         for (i, p) in self.ant.plates.iter_mut().enumerate() {
                             for v in [&mut p.corner, &mut p.edge1, &mut p.edge2] {
-                                ui.horizontal(|ui| {
+                                c.next(ui);
+                                hrow(ui, phone, |ui| {
                                     for c in v.iter_mut() {
                                         ui.add(crate::num::Num::new(c).speed(0.01).max_decimals(4));
                                     }
                                 });
                             }
+                            c.next(ui);
                             ui.horizontal(|ui| {
                                 ui.add(crate::num::Num::new(&mut p.n1).speed(0.2).range(0..=200));
                                 ui.label("×");
@@ -1562,10 +1620,11 @@ impl App {
                             })
                             .response
                             .on_hover_text("Mesh cells along each edge; 0 = automatic (about λ/10)");
+                            c.next(ui);
                             if ui.small_button("🗑").clicked() {
                                 del = Some(i);
                             }
-                            ui.end_row();
+                            c.end(ui);
                         }
                     });
                     if let Some(i) = del {
@@ -1633,19 +1692,23 @@ impl App {
             return;
         }
         let mut del = None;
-        egui::Grid::new("transformers").striped(true).show(ui, |ui| {
-            for h in ["Primary wire", "Position", "Secondary wire", "Position", "Ratio N:1", "Primary L (µH)", "Coupling k", "Core Q", "C across primary (pF)", "Reversed", ""] {
-                ui.label(RichText::new(h).strong());
-            }
-            ui.end_row();
+        let phone = narrow(ui.ctx());
+        egui::Grid::new("transformers").striped(!phone).show(ui, |ui| {
+            let mut c = Cols::new(ui, &["Primary wire", "Position", "Secondary wire", "Position", "Ratio N:1", "Primary L (µH)", "Coupling k", "Core Q", "C across primary (pF)", "Reversed", ""]);
             for (i, t) in self.ant.lines.iter_mut().enumerate().filter(|(_, t)| t.transformer.is_some()) {
-                wire_pick(ui, ("xaw", i), &mut t.a_wire, nw);
-                pos_pick(ui, ("xap", i), &mut t.a_pos);
-                wire_pick(ui, ("xbw", i), &mut t.b_wire, nw);
-                pos_pick(ui, ("xbp", i), &mut t.b_pos);
                 let Some(x) = t.transformer.as_mut() else { continue };
+                c.next(ui);
+                wire_pick(ui, ("xaw", i), &mut t.a_wire, nw);
+                c.next(ui);
+                pos_pick(ui, ("xap", i), &mut t.a_pos);
+                c.next(ui);
+                wire_pick(ui, ("xbw", i), &mut t.b_wire, nw);
+                c.next(ui);
+                pos_pick(ui, ("xbp", i), &mut t.b_pos);
+                c.next(ui);
                 ui.add(crate::num::Num::new(&mut x.ratio).speed(0.1).range(0.01..=1000.0).max_decimals(3))
                     .on_hover_text("Impedance ratio: the secondary's impedance is N times the primary's (turns ratio √N). 49 for an end-fed half wave, 9 or 4 for random wires, 4 for an off-centre-fed dipole or loop");
+                c.next(ui);
                 ui.horizontal(|ui| {
                     ui.add(crate::num::Num::new(&mut x.l_uh).speed(0.1).range(0.0..=1e6).max_decimals(2))
                         .on_hover_text("Inductance of the primary winding on its core (AL × turns²); 0 = an ideal transformer. Too little lets current bypass the load at the low end of the band");
@@ -1668,8 +1731,10 @@ impl App {
                     .on_hover_text("Primary inductance from a ferrite core and the primary turns");
                     ui.data_mut(|d| d.insert_temp(id, turns));
                 });
+                c.next(ui);
                 ui.add_enabled(x.l_uh > 0.0, crate::num::Num::new(&mut x.k).speed(0.001).range(0.5..=1.0).max_decimals(4))
                     .on_hover_text("How tightly the windings are coupled: 1 = no leakage inductance; about 0.98–0.995 for twisted or interleaved windings on a toroid. Leakage limits the high end of the band");
+                c.next(ui);
                 ui.add_enabled(x.l_uh > 0.0, crate::num::Num::new(&mut x.q).speed(0.1).range(0.0..=1000.0).max_decimals(1))
                     .on_hover_text("Core loss as the windings' Q (0 = no loss). #43 and #31 mix are lossy at HF (Q around 1–3), #52 and #61 less so");
                 // a compensating capacitor across the primary (the from-end shunt part)
@@ -1678,25 +1743,28 @@ impl App {
                     Some(LoadKind::Lc { l_uh, c_pf, .. }) if *l_uh == 0.0 => Some(*c_pf),
                     _ => None,
                 };
+                c.next(ui);
                 match pure_c {
-                    Some(mut c) => {
+                    Some(mut cap) => {
                         if ui
-                            .add(crate::num::Num::new(&mut c).speed(1.0).range(0.0..=100000.0).max_decimals(1))
+                            .add(crate::num::Num::new(&mut cap).speed(1.0).range(0.0..=100000.0).max_decimals(1))
                             .on_hover_text("A compensating capacitor across the primary (often about 100 pF on a 49:1); 0 = none")
                             .changed()
                         {
-                            t.shunt_a = (c > 0.0).then_some(LoadKind::Lc { l_uh: 0.0, c_pf: c, q: 0.0 });
+                            t.shunt_a = (cap > 0.0).then_some(LoadKind::Lc { l_uh: 0.0, c_pf: cap, q: 0.0 });
                         }
                     }
                     None => {
                         ui.label(parts_text(t));
                     }
                 }
+                c.next(ui);
                 ui.checkbox(&mut t.reversed, "").on_hover_text("The secondary's ends swapped (winding polarity)");
+                c.next(ui);
                 if ui.small_button("🗑").clicked() {
                     del = Some(i);
                 }
-                ui.end_row();
+                c.end(ui);
             }
         });
         if let Some(i) = del {
@@ -2580,6 +2648,81 @@ fn mm_value(ui: &mut egui::Ui, m: &mut f64, range: std::ops::RangeInclusive<f64>
         *m = mm / 1000.0;
     }
     r
+}
+
+/// A table: a grid of columns on a desktop; on a phone each cell on a line of its own after
+/// its column's name, one item after another, so nothing runs off the screen. Call [`Cols::next`]
+/// before each cell and [`Cols::end`] instead of `end_row` after each item.
+struct Cols {
+    narrow: bool,
+    heads: &'static [&'static str],
+    k: usize,
+}
+
+impl Cols {
+    fn new(ui: &mut egui::Ui, heads: &'static [&'static str]) -> Self {
+        let narrow = narrow(ui.ctx());
+        if !narrow {
+            for h in heads {
+                ui.label(RichText::new(*h).strong());
+            }
+            ui.end_row();
+        }
+        Cols { narrow, heads, k: 0 }
+    }
+    fn next(&mut self, ui: &mut egui::Ui) {
+        if self.narrow {
+            if self.k > 0 {
+                ui.end_row();
+            }
+            ui.label(RichText::new(self.heads.get(self.k).copied().unwrap_or("")).weak());
+        }
+        self.k += 1;
+    }
+    fn end(&mut self, ui: &mut egui::Ui) {
+        if self.narrow {
+            ui.end_row();
+            ui.separator();
+            ui.separator();
+        }
+        ui.end_row();
+        self.k = 0;
+    }
+}
+
+// the coax choke's fields (Geometry ▸ Loads), laid out differently on a desktop and a phone
+fn choke_turns(ui: &mut egui::Ui, c: &mut Choke) {
+    ui.add(crate::num::Num::new(&mut c.turns).speed(0.1).range(0.5..=200.0).max_decimals(1));
+}
+fn choke_former(ui: &mut egui::Ui, c: &mut Choke) {
+    mm_value(ui, &mut c.form_d, 1.0..=2000.0).on_hover_text("Diameter of the former the coax is wound on (mm)");
+}
+fn choke_coax(ui: &mut egui::Ui, c: &mut Choke) {
+    mm_value(ui, &mut c.coax_d, 0.5..=50.0).on_hover_text("Outer diameter of the coax (mm)");
+    ui.menu_button("mm ▾", |ui| {
+        for (name, d) in COAX {
+            if ui.button(format!("{name}  ({} mm)", d * 1000.0)).clicked() {
+                c.coax_d = d;
+                ui.close();
+            }
+        }
+    });
+}
+fn choke_length(ui: &mut egui::Ui, c: &mut Choke) {
+    mm_value(ui, &mut c.length, 0.0..=5000.0).on_hover_text("Length of the winding (mm); 0 = turns touching");
+}
+fn choke_q(ui: &mut egui::Ui, c: &mut Choke) {
+    ui.add(crate::num::Num::new(&mut c.q).speed(1.0).range(0.0..=1000.0))
+        .on_hover_text("Losses of the coil: 0 = lossless. Measured air-wound coax chokes peak at a few kΩ, about Q 10–30.");
+}
+
+/// A row of widgets, wrapping onto more lines when `wrap` (a phone).
+fn hrow(ui: &mut egui::Ui, wrap: bool, f: impl FnOnce(&mut egui::Ui)) {
+    if wrap {
+        ui.horizontal_wrapped(f);
+    } else {
+        ui.horizontal(f);
+    }
 }
 
 fn wire_pick(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, wire: &mut usize, n: usize) {
