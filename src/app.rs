@@ -53,6 +53,11 @@ impl Tab {
     }
 }
 
+/// A narrow window (a phone held upright): tabs go on their own row, side-by-side panels stack.
+fn narrow(ctx: &egui::Context) -> bool {
+    ctx.content_rect().width() < 720.0
+}
+
 enum Job {
     Calc(Receiver<Result<FullResult, String>>, Instant),
     Sweep(Receiver<Result<SweepResult, String>>, Instant),
@@ -411,7 +416,13 @@ impl App {
         self.wire_edit = None;
     }
 
-    fn open_path(&mut self, p: PathBuf) {
+    /// Shows a message in the "Problem" box (used by the Android file picker).
+    #[allow(dead_code)]
+    pub(crate) fn show_problem(&mut self, msg: String) {
+        self.error = Some(msg);
+    }
+
+    pub(crate) fn open_path(&mut self, p: PathBuf) {
         match crate::mcp::open(&p) {
             Ok((a, warnings)) => {
                 if !warnings.is_empty() {
@@ -781,11 +792,20 @@ impl App {
                     ui.close();
                 }
             });
-            ui.separator();
-            for t in Tab::ALL {
-                ui.selectable_value(&mut self.tab, t, t.label());
+            if !narrow(ui.ctx()) {
+                ui.separator();
+                for t in Tab::ALL {
+                    ui.selectable_value(&mut self.tab, t, t.label());
+                }
             }
         });
+        if narrow(ui.ctx()) {
+            ui.horizontal_wrapped(|ui| {
+                for t in Tab::ALL {
+                    ui.selectable_value(&mut self.tab, t, t.label());
+                }
+            });
+        }
     }
 
     /// Asks where to save the PDF report (next to the antenna file with its name, or
@@ -1125,8 +1145,9 @@ impl App {
     // ------------------------------------------------------------------ geometry
 
     fn geometry(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            ui.horizontal(|ui| {
+        let ncols = if narrow(ui.ctx()) { 1 } else { 2 };
+        egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label("Name");
                 ui.add(egui::TextEdit::singleline(&mut self.ant.name).desired_width(320.0));
                 ui.separator();
@@ -1230,7 +1251,7 @@ impl App {
             }
             let nw = self.ant.wires.len().max(1);
             ui.add_space(8.0);
-            ui.columns(2, |cols| {
+            ui.columns(ncols, |cols| {
                 let ui = &mut cols[0];
                 ui.horizontal(|ui| {
                     ui.heading("Sources");
@@ -1267,7 +1288,7 @@ impl App {
                 if let Some(i) = del {
                     self.ant.sources.remove(i);
                 }
-                let ui = &mut cols[1];
+                let ui = &mut cols[cols.len() - 1];
                 ui.horizontal(|ui| {
                     ui.heading("Loads");
                     if ui.button("➕ R+jX").clicked() {
@@ -1447,11 +1468,11 @@ impl App {
                 }
             }
             ui.add_space(8.0);
-            ui.columns(2, |cols| {
+            ui.columns(ncols, |cols| {
                 let ui = &mut cols[0];
                 ui.heading("Ground and wire");
                 ground_controls(ui, &mut self.ant);
-                let ui = &mut cols[1];
+                let ui = &mut cols[cols.len() - 1];
                 ui.heading("Automatic segmentation");
                 egui::Grid::new("segm").show(ui, |ui| {
                     ui.label("Shortest segment  λ /");
@@ -1706,13 +1727,30 @@ impl App {
         ];
         let az = p.az_cut.clone();
         let el: Vec<_> = if ground { p.el_cut.iter().filter(|(t, _)| *t <= 180.0).cloned().collect() } else { p.el_cut.clone() };
-        ui.horizontal(|ui| {
+        let both = |ui: &mut egui::Ui| {
             plots::polar(ui, size, "Horizontal pattern (top view)", &az, PolarKind::Azimuth, &self.show, &info_h, &mut self.az_cursor);
             plots::polar(ui, size, "Vertical pattern (side view)", &el, PolarKind::Elevation { ground }, &self.show, &info_v, &mut self.el_cursor);
-        });
+        };
+        if narrow(ui.ctx()) {
+            ui.vertical(both);
+        } else {
+            ui.horizontal(both);
+        }
     }
 
     fn calculate_tab(&mut self, ui: &mut egui::Ui) {
+        if narrow(ui.ctx()) {
+            // one scrolling column: controls, results, then the two patterns
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                self.calc_controls(ui);
+                ui.separator();
+                self.results_table(ui);
+                ui.separator();
+                let size = (ui.available_width() - 10.0).clamp(200.0, 520.0);
+                self.patterns(ui, size);
+            });
+            return;
+        }
         egui::Panel::left("calcleft").resizable(false).default_size(300.0).show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| self.calc_controls(ui));
         });
@@ -1726,7 +1764,7 @@ impl App {
     }
 
     fn farfield_tab(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Show:");
             ui.checkbox(&mut self.show.total, RichText::new("Total").color(plots::TOTAL));
             ui.checkbox(&mut self.show.hor, RichText::new("Horizontal").color(plots::HORC));
@@ -1740,12 +1778,17 @@ impl App {
         self.calc_progress(ui);
         ui.separator();
         let avail = ui.available_size();
+        if narrow(ui.ctx()) {
+            let size = (avail.x - 10.0).clamp(200.0, 900.0);
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| self.patterns(ui, size));
+            return;
+        }
         let size = ((avail.x - 20.0) / 2.0).min(avail.y - 50.0).clamp(220.0, 900.0);
         self.patterns(ui, size);
     }
 
     fn pattern3d_tab(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui.add_enabled(!self.busy(), egui::Button::new("▶ Calculate")).clicked() {
                 self.start_calc(ui.ctx());
             }
@@ -1800,7 +1843,7 @@ impl App {
     }
 
     fn sweep_tab(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("From (MHz)");
             ui.add(egui::DragValue::new(&mut self.sweep_f0).speed(0.01).max_decimals(4));
             ui.label("to");
@@ -1845,7 +1888,7 @@ impl App {
     }
 
     fn view_tab(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.checkbox(&mut self.view.show_current, "Colour by current");
             ui.checkbox(&mut self.view.show_segments, "Segment marks");
             ui.checkbox(&mut self.view.show_labels, "Wire numbers");
@@ -1881,7 +1924,7 @@ impl App {
             ui.label(RichText::new("■ load").color(Color32::from_rgb(20, 160, 60)));
         });
         self.calc_progress(ui);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let was = self.view.draw;
             ui.toggle_value(&mut self.view.draw, "✏ Draw wires").on_hover_text(
                 "New wire: drag to draw one (start on a wire end to join it). Adjust: drag a wire end to change its length \

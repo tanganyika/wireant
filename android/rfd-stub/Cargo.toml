@@ -1,0 +1,7 @@
+[package]
+name = "rfd"
+version = "0.18.0"
+edition = "2021"
+description = "Stand-in for rfd on Android: no native dialogs yet"
+
+[dependencies]
