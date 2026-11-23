@@ -12,6 +12,34 @@ use std::sync::Arc;
 use std::time::Instant;
 use crate::progress::{self, Progress, STOPPED};
 
+/// A section of the Geometry tab: a rounded card. Its title row (the title, then `head`'s
+/// buttons) folds the card open and closed; `body` is the rest.
+macro_rules! card {
+    ($ui:ident, $id:expr, $title:expr, closed, |$h:ident| $head:block, |$b:ident| $body:block) => {
+        card!(@ $ui, $id, $title, false, |$h| $head, |$b| $body)
+    };
+    ($ui:ident, $id:expr, $title:expr, |$h:ident| $head:block, |$b:ident| $body:block) => {
+        card!(@ $ui, $id, $title, true, |$h| $head, |$b| $body)
+    };
+    (@ $ui:ident, $id:expr, $title:expr, $open:expr, |$h:ident| $head:block, |$b:ident| $body:block) => {
+        egui::Frame::new()
+            .fill($ui.visuals().window_fill)
+            .stroke($ui.visuals().widgets.noninteractive.bg_stroke)
+            .corner_radius(egui::CornerRadius::same(10))
+            .inner_margin(egui::Margin::symmetric(12, 8))
+            .outer_margin(egui::Margin { left: 0, right: 0, top: 0, bottom: 8 })
+            .show($ui, |$ui| {
+                $ui.set_min_width($ui.available_width());
+                egui::collapsing_header::CollapsingState::load_with_default_open($ui.ctx(), $ui.make_persistent_id($id), $open)
+                    .show_header($ui, |$h| {
+                        $h.label(RichText::new($title).heading());
+                        $head
+                    })
+                    .body_unindented(|$b| $body);
+            });
+    };
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Tab {
     Geometry,
@@ -34,6 +62,29 @@ impl Tab {
             Tab::Pattern3D => "3D pattern",
             Tab::Sweep => "Frequency sweep",
             Tab::Optimizer => "Optimizer",
+        }
+    }
+    /// Short name for the phone's bottom bar.
+    fn short(&self) -> &'static str {
+        match self {
+            Tab::Geometry => "Geometry",
+            Tab::View => "View",
+            Tab::Calculate => "Calculate",
+            Tab::FarField => "Patterns",
+            Tab::Pattern3D => "3D",
+            Tab::Sweep => "Sweep",
+            Tab::Optimizer => "Optimize",
+        }
+    }
+    fn icon(&self) -> &'static str {
+        match self {
+            Tab::Geometry => "📐",
+            Tab::View => "👁",
+            Tab::Calculate => "▶",
+            Tab::FarField => "📡",
+            Tab::Pattern3D => "🌐",
+            Tab::Sweep => "📈",
+            Tab::Optimizer => "🎯",
         }
     }
     /// The help page (docs/help/<page>.md) for this tab.
@@ -222,7 +273,7 @@ fn pool(n: usize) -> rayon::ThreadPool {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, mut open: Option<PathBuf>, tab: Option<Tab>, shot: Option<PathBuf>) -> App {
-        cc.egui_ctx.set_visuals(egui::Visuals::light());
+        crate::theme::install(&cc.egui_ctx);
         let max_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
         let mut app = App {
             ant: Antenna::blank(),
@@ -713,6 +764,7 @@ impl App {
                             self.set_antenna(Antenna::example(i));
                             self.path = None;
                             self.file_name = None;
+                            ui.close();
                         }
                     }
                 });
@@ -792,17 +844,31 @@ impl App {
                     ui.close();
                 }
             });
-            if !narrow(ui.ctx()) {
-                ui.separator();
-                for t in Tab::ALL {
-                    ui.selectable_value(&mut self.tab, t, t.label());
-                }
-            }
         });
+    }
+
+    /// The tabs: a rail down the left of a wide window, a bar along the bottom of a phone.
+    fn nav(&mut self, ui: &mut egui::Ui) {
+        let frame = egui::Frame::NONE.fill(ui.visuals().window_fill).inner_margin(egui::Margin::symmetric(4, 6));
         if narrow(ui.ctx()) {
-            ui.horizontal_wrapped(|ui| {
+            egui::Panel::bottom("nav").frame(frame).show(ui, |ui| {
+                let w = ui.available_width() / Tab::ALL.len() as f32;
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    for t in Tab::ALL {
+                        if nav_item(ui, self.tab == t, t.icon(), t.short(), Vec2::new(w, 50.0)).clicked() {
+                            self.tab = t;
+                        }
+                    }
+                });
+            });
+        } else {
+            egui::Panel::left("nav").resizable(false).exact_size(84.0).frame(frame).show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
                 for t in Tab::ALL {
-                    ui.selectable_value(&mut self.tab, t, t.label());
+                    if nav_item(ui, self.tab == t, t.icon(), t.short(), Vec2::new(76.0, 58.0)).on_hover_text(t.label()).clicked() {
+                        self.tab = t;
+                    }
                 }
             });
         }
@@ -961,6 +1027,16 @@ impl App {
                 p.s.default_engine = Some(e);
             });
             ui.add_space(8.0);
+            ui.heading("Appearance");
+            ui.horizontal(|ui| {
+                ui.label("Theme:");
+                for (v, l) in [("", "follow the system"), ("light", "light"), ("dark", "dark")] {
+                    if ui.radio_value(&mut p.s.theme, v.to_string(), l).changed() {
+                        crate::theme::apply_preference(ui.ctx(), &p.s.theme);
+                    }
+                }
+            });
+            ui.add_space(8.0);
             ui.heading("External NEC program");
             ui.label("Your own copy of NEC-4, NEC-5 or another NEC program, used as Engine → External NEC. Each calculation writes the same card deck as for NEC-2 to in.nec in a temporary folder, runs the program there, and reads its report from out.txt, any other file it writes, or what it prints.");
             ui.add_space(4.0);
@@ -984,7 +1060,7 @@ impl App {
                 ui.end_row();
                 ui.label("Runs at once:");
                 ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(&mut p.s.nec_jobs).range(0..=256));
+                    ui.add(crate::num::Num::new(&mut p.s.nec_jobs).range(0..=256));
                     ui.label("in sweeps and the optimizer (0 = one per processor thread)");
                 });
                 ui.end_row();
@@ -1152,14 +1228,13 @@ impl App {
                 ui.add(egui::TextEdit::singleline(&mut self.ant.name).desired_width(320.0));
                 ui.separator();
                 ui.label("Frequency (MHz)");
-                if ui.add(egui::DragValue::new(&mut self.ant.freq_mhz).speed(0.01).range(0.01..=30000.0).max_decimals(4)).changed() {
+                if ui.add(crate::num::Num::new(&mut self.ant.freq_mhz).speed(0.01).range(0.01..=30000.0).max_decimals(4)).changed() {
                     self.reset_sweep_band();
                 }
                 ui.label(format!("λ = {:.3} m", self.ant.lambda()));
             });
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.heading("Wires");
+            card!(ui, "card_wires", "Wires", |ui| {
                 ui.label(format!("({})", self.ant.wires.len()));
                 if ui.button("➕ Add wire").clicked() {
                     let w = self.ant.wires.last().cloned().unwrap_or(Wire::new([0.0, -1.0, 0.0], [0.0, 1.0, 0.0], 1e-3));
@@ -1174,123 +1249,149 @@ impl App {
                         self.ant.wires.push(w);
                     }
                 }
-            });
-            let mut delete = None;
-            egui::Grid::new("wires").striped(true).spacing([6.0, 3.0]).show(ui, |ui| {
-                for h in ["No.", "X1 (m)", "Y1 (m)", "Z1 (m)", "X2 (m)", "Y2 (m)", "Z2 (m)", "R (mm)", "Seg", "Length (m)", "Insulation (mm)", "εr", "VF", ""] {
-                    ui.label(RichText::new(h).strong());
-                }
-                ui.end_row();
-                for (i, w) in self.ant.wires.iter_mut().enumerate() {
-                    let sel = self.selected_wire == Some(i);
-                    if ui.selectable_label(sel, format!("{}", i + 1)).clicked() {
-                        self.selected_wire = if sel { None } else { Some(i) };
+            }, |ui| {
+                let mut delete = None;
+                if narrow(ui.ctx()) {
+                    // a phone: one line per wire; tap it for the wire editor
+                    for (i, w) in self.ant.wires.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            if ui.add(egui::Button::new(RichText::new(format!("{}", i + 1)).strong()).min_size(Vec2::new(40.0, 40.0))).clicked() {
+                                self.wire_edit = Some(i);
+                            }
+                            let pt = |p: [f64; 3]| format!("{:.3}, {:.3}, {:.3}", p[0], p[1], p[2]);
+                            let resp = ui.vertical(|ui| {
+                                let seg = if w.seg > 0 { format!(", {} segments", w.seg) } else { String::new() };
+                                ui.label(format!("{:.3} m, Ø {} mm{}", w.length(), short(w.r * 2000.0), seg));
+                                ui.label(RichText::new(format!("{}  →  {}", pt(w.p1), pt(w.p2))).small().weak());
+                            });
+                            if ui.interact(resp.response.rect, ui.id().with(("wire_row", i)), egui::Sense::click()).clicked() {
+                                self.wire_edit = Some(i);
+                            }
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button("🗑").clicked() {
+                                    delete = Some(i);
+                                }
+                            });
+                        });
+                        ui.separator();
                     }
-                    for v in w.p1.iter_mut().chain(w.p2.iter_mut()) {
-                        ui.add(egui::DragValue::new(v).speed(0.01).max_decimals(4).min_decimals(3));
-                    }
-                    let mut rmm = w.r * 1000.0;
-                    if ui.add(egui::DragValue::new(&mut rmm).speed(0.01).range(0.001..=1000.0).max_decimals(3)).changed() {
-                        w.r = rmm / 1000.0;
-                    }
-                    let mut auto = w.seg <= 0;
-                    ui.horizontal(|ui| {
-                        if ui.checkbox(&mut auto, "auto").changed() {
-                            w.seg = if auto { -1 } else { 10 };
+                } else {
+                    egui::Grid::new("wires").striped(true).spacing([6.0, 3.0]).show(ui, |ui| {
+                        for h in ["No.", "X1 (m)", "Y1 (m)", "Z1 (m)", "X2 (m)", "Y2 (m)", "Z2 (m)", "R (mm)", "Seg", "Length (m)", "Insulation (mm)", "εr", "VF", ""] {
+                            ui.label(RichText::new(h).strong());
                         }
-                        if !auto {
-                            ui.add(egui::DragValue::new(&mut w.seg).range(1..=2000));
+                        ui.end_row();
+                        for (i, w) in self.ant.wires.iter_mut().enumerate() {
+                            let sel = self.selected_wire == Some(i);
+                            if ui.selectable_label(sel, format!("{}", i + 1)).clicked() {
+                                self.selected_wire = if sel { None } else { Some(i) };
+                            }
+                            for v in w.p1.iter_mut().chain(w.p2.iter_mut()) {
+                                ui.add(crate::num::Num::new(v).speed(0.01).max_decimals(4).min_decimals(3));
+                            }
+                            let mut rmm = w.r * 1000.0;
+                            if ui.add(crate::num::Num::new(&mut rmm).speed(0.01).range(0.001..=1000.0).max_decimals(3)).changed() {
+                                w.r = rmm / 1000.0;
+                            }
+                            let mut auto = w.seg <= 0;
+                            ui.horizontal(|ui| {
+                                if ui.checkbox(&mut auto, "auto").changed() {
+                                    w.seg = if auto { -1 } else { 10 };
+                                }
+                                if !auto {
+                                    ui.add(crate::num::Num::new(&mut w.seg).range(1..=2000));
+                                }
+                            });
+                            ui.label(format!("{:.4}", w.length()));
+                            let mut tmm = w.ins_t * 1000.0;
+                            if ui
+                                .add(crate::num::Num::new(&mut tmm).speed(0.01).range(0.0..=100.0).max_decimals(3))
+                                .on_hover_text("Insulation thickness (0 = bare wire)")
+                                .changed()
+                            {
+                                w.ins_t = tmm / 1000.0;
+                                if w.ins_t > 0.0 && w.ins_eps <= 1.0 {
+                                    w.ins_eps = 3.5;
+                                }
+                            }
+                            ui.add_enabled(w.ins_t > 0.0, crate::num::Num::new(&mut w.ins_eps).speed(0.05).range(1.0..=20.0).max_decimals(2))
+                                .on_hover_text("Relative permittivity: PVC 3.5, polyethylene 2.3, PTFE 2.1");
+                            ui.label(if w.insulated() { format!("{:.3}", w.velocity_factor()) } else { "—".into() })
+                                .on_hover_text("Estimated velocity factor of this wire from its insulation");
+                            if ui.small_button("🗑").on_hover_text("Delete wire").clicked() {
+                                delete = Some(i);
+                            }
+                            ui.end_row();
                         }
                     });
-                    ui.label(format!("{:.4}", w.length()));
-                    let mut tmm = w.ins_t * 1000.0;
-                    if ui
-                        .add(egui::DragValue::new(&mut tmm).speed(0.01).range(0.0..=100.0).max_decimals(3))
-                        .on_hover_text("Insulation thickness (0 = bare wire)")
-                        .changed()
-                    {
-                        w.ins_t = tmm / 1000.0;
-                        if w.ins_t > 0.0 && w.ins_eps <= 1.0 {
-                            w.ins_eps = 3.5;
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Insulation for all wires:");
+                    ui.add(crate::num::Num::new(&mut self.ins_all_mm).speed(0.01).range(0.0..=100.0).suffix(" mm"));
+                    egui::ComboBox::from_id_salt("ins_mat")
+                        .selected_text(format!("{} (εr {})", INSULATIONS[self.ins_all_kind].0, INSULATIONS[self.ins_all_kind].1))
+                        .show_ui(ui, |ui| {
+                            for (k, (name, e)) in INSULATIONS.iter().enumerate() {
+                                ui.selectable_value(&mut self.ins_all_kind, k, format!("{name} (εr {e})"));
+                            }
+                        });
+                    if ui.button("Apply to all").clicked() {
+                        for w in self.ant.wires.iter_mut() {
+                            w.ins_t = self.ins_all_mm / 1000.0;
+                            w.ins_eps = INSULATIONS[self.ins_all_kind].1;
                         }
                     }
-                    ui.add_enabled(w.ins_t > 0.0, egui::DragValue::new(&mut w.ins_eps).speed(0.05).range(1.0..=20.0).max_decimals(2))
-                        .on_hover_text("Relative permittivity: PVC 3.5, polyethylene 2.3, PTFE 2.1");
-                    ui.label(if w.insulated() { format!("{:.3}", w.velocity_factor()) } else { "—".into() })
-                        .on_hover_text("Estimated velocity factor of this wire from its insulation");
-                    if ui.small_button("🗑").on_hover_text("Delete wire").clicked() {
-                        delete = Some(i);
-                    }
-                    ui.end_row();
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label("Insulation for all wires:");
-                ui.add(egui::DragValue::new(&mut self.ins_all_mm).speed(0.01).range(0.0..=100.0).suffix(" mm"));
-                egui::ComboBox::from_id_salt("ins_mat")
-                    .selected_text(format!("{} (εr {})", INSULATIONS[self.ins_all_kind].0, INSULATIONS[self.ins_all_kind].1))
-                    .show_ui(ui, |ui| {
-                        for (k, (name, e)) in INSULATIONS.iter().enumerate() {
-                            ui.selectable_value(&mut self.ins_all_kind, k, format!("{name} (εr {e})"));
+                    if ui.button("Remove all").clicked() {
+                        for w in self.ant.wires.iter_mut() {
+                            w.ins_t = 0.0;
                         }
-                    });
-                if ui.button("Apply to all").clicked() {
-                    for w in self.ant.wires.iter_mut() {
-                        w.ins_t = self.ins_all_mm / 1000.0;
-                        w.ins_eps = INSULATIONS[self.ins_all_kind].1;
                     }
-                }
-                if ui.button("Remove all").clicked() {
-                    for w in self.ant.wires.iter_mut() {
-                        w.ins_t = 0.0;
-                    }
+                });
+                if let Some(i) = delete {
+                    self.delete_wire(i);
                 }
             });
-            if let Some(i) = delete {
-                self.delete_wire(i);
-            }
             let nw = self.ant.wires.len().max(1);
             ui.add_space(8.0);
             ui.columns(ncols, |cols| {
                 let ui = &mut cols[0];
-                ui.horizontal(|ui| {
-                    ui.heading("Sources");
+                card!(ui, "card_sources", "Sources", |ui| {
                     if ui.button("➕ Add").clicked() {
                         self.ant.sources.push(Source { wire: 0, pos: 0.5, phase_deg: 0.0, volts: 1.0, current: false });
                     }
-                });
-                let mut del = None;
-                egui::Grid::new("sources").striped(true).show(ui, |ui| {
-                    for h in ["Wire", "Position", "Phase (°)", "Value", "Type", ""] {
-                        ui.label(RichText::new(h).strong());
-                    }
-                    ui.end_row();
-                    for (i, s) in self.ant.sources.iter_mut().enumerate() {
-                        wire_pick(ui, ("sw", i), &mut s.wire, nw);
-                        pos_pick(ui, ("sp", i), &mut s.pos);
-                        ui.add(egui::DragValue::new(&mut s.phase_deg).speed(1.0).range(-360.0..=360.0));
-                        ui.add(egui::DragValue::new(&mut s.volts).speed(0.01).range(0.0..=1e6).suffix(if s.current { " A" } else { " V" }));
-                        egui::ComboBox::from_id_salt(("st", i))
-                            .selected_text(if s.current { "current" } else { "voltage" })
-                            .width(70.0)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut s.current, false, "voltage");
-                                ui.selectable_value(&mut s.current, true, "current");
-                            })
-                            .response
-                            .on_hover_text("With several sources: a voltage source keeps its voltage, a current source its current (amps at this phase), as phased arrays are usually fed. With one source it makes no difference.");
-                        if ui.small_button("🗑").clicked() {
-                            del = Some(i);
+                }, |ui| {
+                    let mut del = None;
+                    egui::Grid::new("sources").striped(true).show(ui, |ui| {
+                        for h in ["Wire", "Position", "Phase (°)", "Value", "Type", ""] {
+                            ui.label(RichText::new(h).strong());
                         }
                         ui.end_row();
+                        for (i, s) in self.ant.sources.iter_mut().enumerate() {
+                            wire_pick(ui, ("sw", i), &mut s.wire, nw);
+                            pos_pick(ui, ("sp", i), &mut s.pos);
+                            ui.add(crate::num::Num::new(&mut s.phase_deg).speed(1.0).range(-360.0..=360.0));
+                            ui.add(crate::num::Num::new(&mut s.volts).speed(0.01).range(0.0..=1e6).suffix(if s.current { " A" } else { " V" }));
+                            egui::ComboBox::from_id_salt(("st", i))
+                                .selected_text(if s.current { "current" } else { "voltage" })
+                                .width(70.0)
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut s.current, false, "voltage");
+                                    ui.selectable_value(&mut s.current, true, "current");
+                                })
+                                .response
+                                .on_hover_text("With several sources: a voltage source keeps its voltage, a current source its current (amps at this phase), as phased arrays are usually fed. With one source it makes no difference.");
+                            if ui.small_button("🗑").clicked() {
+                                del = Some(i);
+                            }
+                            ui.end_row();
+                        }
+                    });
+                    if let Some(i) = del {
+                        self.ant.sources.remove(i);
                     }
                 });
-                if let Some(i) = del {
-                    self.ant.sources.remove(i);
-                }
                 let ui = &mut cols[cols.len() - 1];
-                ui.horizontal(|ui| {
-                    ui.heading("Loads");
+                card!(ui, "card_loads", "Loads", |ui| {
                     if ui.button("➕ R+jX").clicked() {
                         self.ant.loads.push(Load { wire: 0, pos: 0.5, kind: LoadKind::Rx { r: 0.0, x: 0.0 } });
                     }
@@ -1304,220 +1405,230 @@ impl App {
                     {
                         self.ant.loads.push(Load { wire: 0, pos: 0.5, kind: LoadKind::Choke(Choke::default()) });
                     }
-                });
-                let mut del = None;
-                egui::Grid::new("loads").striped(true).show(ui, |ui| {
-                    for h in ["Wire", "Position", "Value", ""] {
-                        ui.label(RichText::new(h).strong());
-                    }
-                    ui.end_row();
-                    for (i, l) in self.ant.loads.iter_mut().enumerate() {
-                        wire_pick(ui, ("lw", i), &mut l.wire, nw);
-                        pos_pick(ui, ("lp", i), &mut l.pos);
-                        ui.horizontal(|ui| match &mut l.kind {
-                            LoadKind::Choke(c) => {
-                                ui.vertical(|ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.add(egui::DragValue::new(&mut c.turns).speed(0.1).range(0.5..=200.0).max_decimals(1));
-                                        ui.label("turns, Ø");
-                                        mm_value(ui, &mut c.form_d, 1.0..=2000.0).on_hover_text("Diameter of the former the coax is wound on (mm)");
-                                        ui.label("mm, coax");
-                                        mm_value(ui, &mut c.coax_d, 0.5..=50.0).on_hover_text("Outer diameter of the coax (mm)");
-                                        ui.menu_button("mm ▾", |ui| {
-                                            for (name, d) in COAX {
-                                                if ui.button(format!("{name}  ({} mm)", d * 1000.0)).clicked() {
-                                                    c.coax_d = d;
-                                                    ui.close();
-                                                }
-                                            }
-                                        });
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label("length");
-                                        mm_value(ui, &mut c.length, 0.0..=5000.0).on_hover_text("Length of the winding (mm); 0 = turns touching");
-                                        ui.label("mm, Q");
-                                        ui.add(egui::DragValue::new(&mut c.q).speed(1.0).range(0.0..=1000.0)).on_hover_text(
-                                            "Losses of the coil: 0 = lossless. Measured air-wound coax chokes peak at a few kΩ, about Q 10–30.",
-                                        );
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label(RichText::new(format!("= {} µH ∥ {} pF, resonant {:.1} MHz", short(c.l_uh()), short(c.c_pf()), c.resonance_mhz())).weak()).on_hover_text(
-                                            "The coil's inductance (Nagaoka) and self-capacitance (Medhurst), modelled as a parallel trap: it blocks best around its resonance",
-                                        );
-                                    });
-                                });
-                            }
-                            LoadKind::Rx { r, x } => {
-                                ui.label("R");
-                                ui.add(egui::DragValue::new(r).speed(0.1));
-                                ui.label("jX");
-                                ui.add(egui::DragValue::new(x).speed(0.1));
-                            }
-                            LoadKind::Rlc { r, l_uh, c_pf, parallel } => {
-                                ui.label("R");
-                                ui.add(egui::DragValue::new(r).speed(0.1).range(0.0..=1e9));
-                                ui.label("L µH");
-                                ui.add(egui::DragValue::new(l_uh).speed(0.01).range(0.0..=1e6));
-                                ui.label("C pF");
-                                ui.add(egui::DragValue::new(c_pf).speed(0.5).range(0.0..=1e9));
-                                ui.checkbox(parallel, "parallel");
-                            }
-                            LoadKind::Lc { l_uh, c_pf, q } => {
-                                ui.label("L µH");
-                                ui.add(egui::DragValue::new(l_uh).speed(0.01).range(0.0..=1e6));
-                                ui.label("C pF");
-                                ui.add(egui::DragValue::new(c_pf).speed(0.5).range(0.0..=1e9));
-                                ui.label("Q");
-                                ui.add(egui::DragValue::new(q).speed(1.0).range(0.0..=1e6))
-                                    .on_hover_text("0 = lossless. With both L and C set, they form a parallel trap.");
-                            }
-                        });
-                        if ui.small_button("🗑").clicked() {
-                            del = Some(i);
+                }, |ui| {
+                    let mut del = None;
+                    egui::Grid::new("loads").striped(true).show(ui, |ui| {
+                        for h in ["Wire", "Position", "Value", ""] {
+                            ui.label(RichText::new(h).strong());
                         }
                         ui.end_row();
+                        for (i, l) in self.ant.loads.iter_mut().enumerate() {
+                            wire_pick(ui, ("lw", i), &mut l.wire, nw);
+                            pos_pick(ui, ("lp", i), &mut l.pos);
+                            ui.horizontal(|ui| match &mut l.kind {
+                                LoadKind::Choke(c) => {
+                                    ui.vertical(|ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.add(crate::num::Num::new(&mut c.turns).speed(0.1).range(0.5..=200.0).max_decimals(1));
+                                            ui.label("turns, Ø");
+                                            mm_value(ui, &mut c.form_d, 1.0..=2000.0).on_hover_text("Diameter of the former the coax is wound on (mm)");
+                                            ui.label("mm, coax");
+                                            mm_value(ui, &mut c.coax_d, 0.5..=50.0).on_hover_text("Outer diameter of the coax (mm)");
+                                            ui.menu_button("mm ▾", |ui| {
+                                                for (name, d) in COAX {
+                                                    if ui.button(format!("{name}  ({} mm)", d * 1000.0)).clicked() {
+                                                        c.coax_d = d;
+                                                        ui.close();
+                                                    }
+                                                }
+                                            });
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label("length");
+                                            mm_value(ui, &mut c.length, 0.0..=5000.0).on_hover_text("Length of the winding (mm); 0 = turns touching");
+                                            ui.label("mm, Q");
+                                            ui.add(crate::num::Num::new(&mut c.q).speed(1.0).range(0.0..=1000.0)).on_hover_text(
+                                                "Losses of the coil: 0 = lossless. Measured air-wound coax chokes peak at a few kΩ, about Q 10–30.",
+                                            );
+                                        });
+                                        ui.horizontal(|ui| {
+                                            ui.label(RichText::new(format!("= {} µH ∥ {} pF, resonant {:.1} MHz", short(c.l_uh()), short(c.c_pf()), c.resonance_mhz())).weak()).on_hover_text(
+                                                "The coil's inductance (Nagaoka) and self-capacitance (Medhurst), modelled as a parallel trap: it blocks best around its resonance",
+                                            );
+                                        });
+                                    });
+                                }
+                                LoadKind::Rx { r, x } => {
+                                    ui.label("R");
+                                    ui.add(crate::num::Num::new(r).speed(0.1));
+                                    ui.label("jX");
+                                    ui.add(crate::num::Num::new(x).speed(0.1));
+                                }
+                                LoadKind::Rlc { r, l_uh, c_pf, parallel } => {
+                                    ui.label("R");
+                                    ui.add(crate::num::Num::new(r).speed(0.1).range(0.0..=1e9));
+                                    ui.label("L µH");
+                                    ui.add(crate::num::Num::new(l_uh).speed(0.01).range(0.0..=1e6));
+                                    ui.label("C pF");
+                                    ui.add(crate::num::Num::new(c_pf).speed(0.5).range(0.0..=1e9));
+                                    ui.checkbox(parallel, "parallel");
+                                }
+                                LoadKind::Lc { l_uh, c_pf, q } => {
+                                    ui.label("L µH");
+                                    ui.add(crate::num::Num::new(l_uh).speed(0.01).range(0.0..=1e6));
+                                    ui.label("C pF");
+                                    ui.add(crate::num::Num::new(c_pf).speed(0.5).range(0.0..=1e9));
+                                    ui.label("Q");
+                                    ui.add(crate::num::Num::new(q).speed(1.0).range(0.0..=1e6))
+                                        .on_hover_text("0 = lossless. With both L and C set, they form a parallel trap.");
+                                }
+                            });
+                            if ui.small_button("🗑").clicked() {
+                                del = Some(i);
+                            }
+                            ui.end_row();
+                        }
+                    });
+                    if let Some(i) = del {
+                        self.ant.loads.remove(i);
                     }
                 });
-                if let Some(i) = del {
-                    self.ant.loads.remove(i);
-                }
             });
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.heading("Transmission lines");
+            card!(ui, "card_lines", "Transmission lines", |ui| {
                 if ui.button("➕ Add").clicked() {
                     let b = if nw > 1 { 1 } else { 0 };
                     self.ant.lines.push(TLine::new(0, 0.5, b, 0.5));
                 }
+            }, |ui| {
                 ui.label(RichText::new("feed lines, phasing lines and stubs — wiremom and NEC-2 engines").weak());
-            });
-            if self.ant.lines.iter().any(|t| t.transformer.is_none()) {
-                let mut del = None;
-                egui::Grid::new("lines").striped(true).show(ui, |ui| {
-                    for h in ["From wire", "Position", "To wire", "Position", "Z0 (Ω)", "Length (m)", "Vel. factor", "Loss (dB/100 m)", "Reversed", "Parts", ""] {
-                        ui.label(RichText::new(h).strong());
-                    }
-                    ui.end_row();
-                    for (i, t) in self.ant.lines.iter_mut().enumerate().filter(|(_, t)| t.transformer.is_none()) {
-                        wire_pick(ui, ("taw", i), &mut t.a_wire, nw);
-                        pos_pick(ui, ("tap", i), &mut t.a_pos);
-                        wire_pick(ui, ("tbw", i), &mut t.b_wire, nw);
-                        pos_pick(ui, ("tbp", i), &mut t.b_pos);
-                        // a lumped series part replaces the line: its line values are unused
-                        let line = t.series.is_none();
-                        ui.add_enabled(line, egui::DragValue::new(&mut t.z0).speed(0.5).range(1.0..=10000.0));
-                        ui.add_enabled(line, egui::DragValue::new(&mut t.length).speed(0.01).range(0.0..=1e6).max_decimals(4))
-                            .on_hover_text("0 = the straight distance between the two ends");
-                        ui.add_enabled(line, egui::DragValue::new(&mut t.vf).speed(0.005).range(0.1..=1.0).max_decimals(3))
-                            .on_hover_text("Velocity factor: 1 for an air-spaced line, about 0.66 for solid-PE coax, 0.8 for foam");
-                        ui.add_enabled(line, egui::DragValue::new(&mut t.loss_db).speed(0.05).range(0.0..=100.0).max_decimals(2))
-                            .on_hover_text("Matched-line loss at the calculation frequency (NEC-2 ignores it)");
-                        ui.add_enabled(line, egui::Checkbox::new(&mut t.reversed, "")).on_hover_text("Conductors swapped at the far end (a half twist)");
-                        ui.label(parts_text(t)).on_hover_text("Lumped parts, from the Match calculator's \"Add to the antenna\". Delete the line to remove them.");
-                        if ui.small_button("🗑").clicked() {
-                            del = Some(i);
+                if self.ant.lines.iter().any(|t| t.transformer.is_none()) {
+                    let mut del = None;
+                    egui::Grid::new("lines").striped(true).show(ui, |ui| {
+                        for h in ["From wire", "Position", "To wire", "Position", "Z0 (Ω)", "Length (m)", "Vel. factor", "Loss (dB/100 m)", "Reversed", "Parts", ""] {
+                            ui.label(RichText::new(h).strong());
                         }
                         ui.end_row();
+                        for (i, t) in self.ant.lines.iter_mut().enumerate().filter(|(_, t)| t.transformer.is_none()) {
+                            wire_pick(ui, ("taw", i), &mut t.a_wire, nw);
+                            pos_pick(ui, ("tap", i), &mut t.a_pos);
+                            wire_pick(ui, ("tbw", i), &mut t.b_wire, nw);
+                            pos_pick(ui, ("tbp", i), &mut t.b_pos);
+                            // a lumped series part replaces the line: its line values are unused
+                            let line = t.series.is_none();
+                            ui.add_enabled(line, crate::num::Num::new(&mut t.z0).speed(0.5).range(1.0..=10000.0));
+                            ui.add_enabled(line, crate::num::Num::new(&mut t.length).speed(0.01).range(0.0..=1e6).max_decimals(4))
+                                .on_hover_text("0 = the straight distance between the two ends");
+                            ui.add_enabled(line, crate::num::Num::new(&mut t.vf).speed(0.005).range(0.1..=1.0).max_decimals(3))
+                                .on_hover_text("Velocity factor: 1 for an air-spaced line, about 0.66 for solid-PE coax, 0.8 for foam");
+                            ui.add_enabled(line, crate::num::Num::new(&mut t.loss_db).speed(0.05).range(0.0..=100.0).max_decimals(2))
+                                .on_hover_text("Matched-line loss at the calculation frequency (NEC-2 ignores it)");
+                            ui.add_enabled(line, egui::Checkbox::new(&mut t.reversed, "")).on_hover_text("Conductors swapped at the far end (a half twist)");
+                            ui.label(parts_text(t)).on_hover_text("Lumped parts, from the Match calculator's \"Add to the antenna\". Delete the line to remove them.");
+                            if ui.small_button("🗑").clicked() {
+                                del = Some(i);
+                            }
+                            ui.end_row();
+                        }
+                    });
+                    if let Some(i) = del {
+                        self.ant.lines.remove(i);
                     }
-                });
-                if let Some(i) = del {
-                    self.ant.lines.remove(i);
                 }
-            }
+            });
             ui.add_space(8.0);
-            self.transformers(ui, nw);
+            card!(ui, "card_transformers", "Transformers", |ui| {
+                self.transformers_head(ui);
+            }, |ui| {
+                self.transformers(ui, nw);
+            });
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.heading("Plates");
+            card!(ui, "card_plates", "Plates", |ui| {
                 if ui.button("➕ Add").clicked() {
                     let l = self.ant.lambda() / 2.0;
                     self.ant.plates.push(Plate::new([-l / 2.0, -l / 2.0, 0.0], [l, 0.0, 0.0], [0.0, l, 0.0]));
                 }
+            }, |ui| {
                 ui.label(RichText::new("flat conducting plates (reflectors, ground screens); a wire ending on a plate connects to it — wiremom engine").weak());
-            });
-            if !self.ant.plates.is_empty() {
-                let mut del = None;
-                egui::Grid::new("plates").striped(true).show(ui, |ui| {
-                    for h in ["Corner X, Y, Z (m)", "Edge 1 dX, dY, dZ (m)", "Edge 2 dX, dY, dZ (m)", "Divisions", ""] {
-                        ui.label(RichText::new(h).strong());
-                    }
-                    ui.end_row();
-                    for (i, p) in self.ant.plates.iter_mut().enumerate() {
-                        for v in [&mut p.corner, &mut p.edge1, &mut p.edge2] {
-                            ui.horizontal(|ui| {
-                                for c in v.iter_mut() {
-                                    ui.add(egui::DragValue::new(c).speed(0.01).max_decimals(4));
-                                }
-                            });
-                        }
-                        ui.horizontal(|ui| {
-                            ui.add(egui::DragValue::new(&mut p.n1).speed(0.2).range(0..=200));
-                            ui.label("×");
-                            ui.add(egui::DragValue::new(&mut p.n2).speed(0.2).range(0..=200));
-                        })
-                        .response
-                        .on_hover_text("Mesh cells along each edge; 0 = automatic (about λ/10)");
-                        if ui.small_button("🗑").clicked() {
-                            del = Some(i);
+                if !self.ant.plates.is_empty() {
+                    let mut del = None;
+                    egui::Grid::new("plates").striped(true).show(ui, |ui| {
+                        for h in ["Corner X, Y, Z (m)", "Edge 1 dX, dY, dZ (m)", "Edge 2 dX, dY, dZ (m)", "Divisions", ""] {
+                            ui.label(RichText::new(h).strong());
                         }
                         ui.end_row();
+                        for (i, p) in self.ant.plates.iter_mut().enumerate() {
+                            for v in [&mut p.corner, &mut p.edge1, &mut p.edge2] {
+                                ui.horizontal(|ui| {
+                                    for c in v.iter_mut() {
+                                        ui.add(crate::num::Num::new(c).speed(0.01).max_decimals(4));
+                                    }
+                                });
+                            }
+                            ui.horizontal(|ui| {
+                                ui.add(crate::num::Num::new(&mut p.n1).speed(0.2).range(0..=200));
+                                ui.label("×");
+                                ui.add(crate::num::Num::new(&mut p.n2).speed(0.2).range(0..=200));
+                            })
+                            .response
+                            .on_hover_text("Mesh cells along each edge; 0 = automatic (about λ/10)");
+                            if ui.small_button("🗑").clicked() {
+                                del = Some(i);
+                            }
+                            ui.end_row();
+                        }
+                    });
+                    if let Some(i) = del {
+                        self.ant.plates.remove(i);
                     }
-                });
-                if let Some(i) = del {
-                    self.ant.plates.remove(i);
                 }
-            }
+            });
             ui.add_space(8.0);
             ui.columns(ncols, |cols| {
                 let ui = &mut cols[0];
-                ui.heading("Ground and wire");
-                ground_controls(ui, &mut self.ant);
+                card!(ui, "card_ground", "Ground and wire", |_ui| {}, |ui| {
+                    ground_controls(ui, &mut self.ant);
+                });
                 let ui = &mut cols[cols.len() - 1];
-                ui.heading("Automatic segmentation");
-                egui::Grid::new("segm").show(ui, |ui| {
-                    ui.label("Shortest segment  λ /");
-                    ui.add(egui::DragValue::new(&mut self.ant.seg.dm1).speed(1.0).range(10.0..=5000.0));
-                    ui.end_row();
-                    ui.label("Longest segment  λ /");
-                    ui.add(egui::DragValue::new(&mut self.ant.seg.dm2).speed(1.0).range(4.0..=1000.0));
-                    ui.end_row();
-                    ui.label("Growth factor");
-                    ui.add(egui::DragValue::new(&mut self.ant.seg.sc).speed(0.05).range(1.01..=3.0))
-                        .on_hover_text("SC: the easing parameter (multiplier), 1 < SC <= 3");
-                    ui.end_row();
-                    ui.label("Shortest segments at each end");
-                    ui.add(egui::DragValue::new(&mut self.ant.seg.ec).range(1..=64));
-                    ui.end_row();
+                card!(ui, "card_segm", "Automatic segmentation", |_ui| {}, |ui| {
+                    egui::Grid::new("segm").show(ui, |ui| {
+                        ui.label("Shortest segment  λ /");
+                        ui.add(crate::num::Num::new(&mut self.ant.seg.dm1).speed(1.0).range(10.0..=5000.0));
+                        ui.end_row();
+                        ui.label("Longest segment  λ /");
+                        ui.add(crate::num::Num::new(&mut self.ant.seg.dm2).speed(1.0).range(4.0..=1000.0));
+                        ui.end_row();
+                        ui.label("Growth factor");
+                        ui.add(crate::num::Num::new(&mut self.ant.seg.sc).speed(0.05).range(1.01..=3.0))
+                            .on_hover_text("SC: the easing parameter (multiplier), 1 < SC <= 3");
+                        ui.end_row();
+                        ui.label("Shortest segments at each end");
+                        ui.add(crate::num::Num::new(&mut self.ant.seg.ec).range(1..=64));
+                        ui.end_row();
+                    });
                 });
             });
             ui.add_space(8.0);
-            ui.heading("Comment");
-            ui.add(egui::TextEdit::multiline(&mut self.ant.comment).desired_rows(3).desired_width(f32::INFINITY));
+            card!(ui, "card_comment", "Comment", |_ui| {}, |ui| {
+                ui.add(egui::TextEdit::multiline(&mut self.ant.comment).desired_rows(3).desired_width(f32::INFINITY));
+            });
         });
+        self.wire_editor(ui.ctx());
+    }
+
+    /// The Transformers card's title row: the "Feed through…" menu.
+    fn transformers_head(&mut self, ui: &mut egui::Ui) {
+        let at_source = !self.ant.sources.is_empty();
+        ui.menu_button("➕ Feed through…", |ui| {
+            if !at_source {
+                ui.label("Add a source first: the transformer goes in at the source.");
+                return;
+            }
+            for r in [49.0, 9.0, 4.0, 1.0, 0.25] {
+                let x = Transformer { ratio: r, ..Transformer::default() };
+                if ui.button(format!("{} transformer at the source", x.label())).clicked() {
+                    crate::matching::feed_through_transformer(&mut self.ant, 0, x);
+                    ui.close();
+                }
+            }
+        })
+        .response
+        .on_hover_text("Moves the source onto a small feed wire beside the antenna, which feeds the transformer's primary; the secondary goes where the source was");
     }
 
     /// Transformers (baluns and ununs): lines with a transformer in place of the line.
     fn transformers(&mut self, ui: &mut egui::Ui, nw: usize) {
-        ui.horizontal(|ui| {
-            ui.heading("Transformers");
-            let at_source = !self.ant.sources.is_empty();
-            ui.menu_button("➕ Feed through…", |ui| {
-                if !at_source {
-                    ui.label("Add a source first: the transformer goes in at the source.");
-                    return;
-                }
-                for r in [49.0, 9.0, 4.0, 1.0, 0.25] {
-                    let x = Transformer { ratio: r, ..Transformer::default() };
-                    if ui.button(format!("{} transformer at the source", x.label())).clicked() {
-                        crate::matching::feed_through_transformer(&mut self.ant, 0, x);
-                        ui.close();
-                    }
-                }
-            })
-            .response
-            .on_hover_text("Moves the source onto a small feed wire beside the antenna, which feeds the transformer's primary; the secondary goes where the source was");
-            ui.label(RichText::new("baluns and ununs: the feed goes into the primary, the antenna is on the secondary — wiremom and NEC-2 engines").weak());
-        });
+        ui.label(RichText::new("baluns and ununs: the feed goes into the primary, the antenna is on the secondary — wiremom and NEC-2 engines").weak());
         if !self.ant.lines.iter().any(|t| t.transformer.is_some()) {
             return;
         }
@@ -1533,17 +1644,17 @@ impl App {
                 wire_pick(ui, ("xbw", i), &mut t.b_wire, nw);
                 pos_pick(ui, ("xbp", i), &mut t.b_pos);
                 let Some(x) = t.transformer.as_mut() else { continue };
-                ui.add(egui::DragValue::new(&mut x.ratio).speed(0.1).range(0.01..=1000.0).max_decimals(3))
+                ui.add(crate::num::Num::new(&mut x.ratio).speed(0.1).range(0.01..=1000.0).max_decimals(3))
                     .on_hover_text("Impedance ratio: the secondary's impedance is N times the primary's (turns ratio √N). 49 for an end-fed half wave, 9 or 4 for random wires, 4 for an off-centre-fed dipole or loop");
                 ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(&mut x.l_uh).speed(0.1).range(0.0..=1e6).max_decimals(2))
+                    ui.add(crate::num::Num::new(&mut x.l_uh).speed(0.1).range(0.0..=1e6).max_decimals(2))
                         .on_hover_text("Inductance of the primary winding on its core (AL × turns²); 0 = an ideal transformer. Too little lets current bypass the load at the low end of the band");
                     let id = ui.scope_id().with(("xturns", i));
                     let mut turns: f64 = ui.data_mut(|d| *d.get_temp_mut_or(id, 3.0));
                     ui.menu_button("🧲", |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Primary turns");
-                            ui.add(egui::DragValue::new(&mut turns).speed(0.1).range(1.0..=100.0));
+                            ui.add(crate::num::Num::new(&mut turns).speed(0.1).range(1.0..=100.0));
                         });
                         for (name, al) in CORES {
                             if ui.button(format!("{name}  (AL {al} nH/t²): {} µH", crate::matching::sig(core_l_uh(al, turns)))).clicked() {
@@ -1557,9 +1668,9 @@ impl App {
                     .on_hover_text("Primary inductance from a ferrite core and the primary turns");
                     ui.data_mut(|d| d.insert_temp(id, turns));
                 });
-                ui.add_enabled(x.l_uh > 0.0, egui::DragValue::new(&mut x.k).speed(0.001).range(0.5..=1.0).max_decimals(4))
+                ui.add_enabled(x.l_uh > 0.0, crate::num::Num::new(&mut x.k).speed(0.001).range(0.5..=1.0).max_decimals(4))
                     .on_hover_text("How tightly the windings are coupled: 1 = no leakage inductance; about 0.98–0.995 for twisted or interleaved windings on a toroid. Leakage limits the high end of the band");
-                ui.add_enabled(x.l_uh > 0.0, egui::DragValue::new(&mut x.q).speed(0.1).range(0.0..=1000.0).max_decimals(1))
+                ui.add_enabled(x.l_uh > 0.0, crate::num::Num::new(&mut x.q).speed(0.1).range(0.0..=1000.0).max_decimals(1))
                     .on_hover_text("Core loss as the windings' Q (0 = no loss). #43 and #31 mix are lossy at HF (Q around 1–3), #52 and #61 less so");
                 // a compensating capacitor across the primary (the from-end shunt part)
                 let pure_c = match &t.shunt_a {
@@ -1570,7 +1681,7 @@ impl App {
                 match pure_c {
                     Some(mut c) => {
                         if ui
-                            .add(egui::DragValue::new(&mut c).speed(1.0).range(0.0..=100000.0).max_decimals(1))
+                            .add(crate::num::Num::new(&mut c).speed(1.0).range(0.0..=100000.0).max_decimals(1))
                             .on_hover_text("A compensating capacitor across the primary (often about 100 pF on a 49:1); 0 = none")
                             .changed()
                         {
@@ -1597,9 +1708,21 @@ impl App {
 
     fn calc_controls(&mut self, ui: &mut egui::Ui) {
         ui.heading("Calculate");
+        self.calc_settings(ui);
+        ui.add_space(6.0);
+        self.calc_button(ui);
+        if self.calc.is_some() {
+            ui.add_space(8.0);
+            ui.separator();
+            ui.label(RichText::new("Last result").strong());
+            self.last_result(ui);
+        }
+    }
+
+    fn calc_settings(&mut self, ui: &mut egui::Ui) {
         egui::Grid::new("calcctl").spacing([8.0, 6.0]).show(ui, |ui| {
             ui.label("Frequency (MHz)");
-            ui.add(egui::DragValue::new(&mut self.ant.freq_mhz).speed(0.01).range(0.01..=30000.0).max_decimals(4));
+            ui.add(crate::num::Num::new(&mut self.ant.freq_mhz).speed(0.01).range(0.01..=30000.0).max_decimals(4));
             ui.end_row();
             ui.label("Engine");
             engine_pick(ui, "eng_calc", &mut self.ant.engine);
@@ -1611,19 +1734,21 @@ impl App {
             ui.label("Threads");
             ui.add(egui::Slider::new(&mut self.threads, 1..=self.max_threads));
         });
-        ui.add_space(6.0);
+    }
+
+    fn calc_button(&mut self, ui: &mut egui::Ui) {
         let busy = self.busy();
         let b = egui::Button::new(RichText::new(if busy { "Working…" } else { "▶  Calculate" }).size(17.0)).min_size(Vec2::new(200.0, 34.0));
         if ui.add_enabled(!busy, b).clicked() {
             self.start_calc(ui.ctx());
         }
         self.calc_progress(ui);
+    }
+
+    fn last_result(&mut self, ui: &mut egui::Ui) {
         if let Some(c) = &self.calc {
             let r = &c.result;
-            ui.add_space(8.0);
-            ui.separator();
-            ui.label(RichText::new("Last result").strong());
-            egui::Grid::new("lastres").show(ui, |ui| {
+            egui::Grid::new("lastres").min_row_height(ui.text_style_height(&egui::TextStyle::Body)).show(ui, |ui| {
                 let row = |ui: &mut egui::Ui, a: &str, b: String| {
                     ui.label(a);
                     ui.label(RichText::new(b).monospace());
@@ -1741,11 +1866,21 @@ impl App {
     fn calculate_tab(&mut self, ui: &mut egui::Ui) {
         if narrow(ui.ctx()) {
             // one scrolling column: controls, results, then the two patterns
+            // a phone: the button and the answer first, the settings folded away below
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                self.calc_controls(ui);
-                ui.separator();
+                ui.add_space(4.0);
+                self.calc_button(ui);
+                ui.add_space(8.0);
+                if self.calc.is_some() {
+                    card!(ui, "card_last", "Last result", |_ui| {}, |ui| {
+                        self.last_result(ui);
+                    });
+                }
+                card!(ui, "card_calcset", "Settings", closed, |_ui| {}, |ui| {
+                    self.calc_settings(ui);
+                });
                 self.results_table(ui);
-                ui.separator();
+                ui.add_space(8.0);
                 let size = (ui.available_width() - 10.0).clamp(200.0, 520.0);
                 self.patterns(ui, size);
             });
@@ -1845,11 +1980,11 @@ impl App {
     fn sweep_tab(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             ui.label("From (MHz)");
-            ui.add(egui::DragValue::new(&mut self.sweep_f0).speed(0.01).max_decimals(4));
+            ui.add(crate::num::Num::new(&mut self.sweep_f0).speed(0.01).max_decimals(4));
             ui.label("to");
-            ui.add(egui::DragValue::new(&mut self.sweep_f1).speed(0.01).max_decimals(4));
+            ui.add(crate::num::Num::new(&mut self.sweep_f1).speed(0.01).max_decimals(4));
             ui.label("points");
-            ui.add(egui::DragValue::new(&mut self.sweep_steps).range(2..=2001));
+            ui.add(crate::num::Num::new(&mut self.sweep_steps).range(2..=2001));
             ui.checkbox(&mut self.sweep_gain, "Gain and F/B (slower)");
             ui.label("Engine");
             engine_pick(ui, "eng_sweep", &mut self.ant.engine);
@@ -2092,7 +2227,7 @@ impl App {
                 for (name, p) in [("Start", &mut w.p1), ("End", &mut w.p2)] {
                     ui.label(name);
                     for c in p.iter_mut() {
-                        ui.add(egui::DragValue::new(c).speed(0.01).max_decimals(4));
+                        ui.add(crate::num::Num::new(c).speed(0.01).max_decimals(4));
                     }
                     ui.end_row();
                 }
@@ -2102,7 +2237,7 @@ impl App {
                 .horizontal(|ui| {
                     ui.label("Length (m)");
                     let mut len = w.length();
-                    let changed = ui.add(egui::DragValue::new(&mut len).speed(0.01).range(1e-4..=1e6).max_decimals(4)).changed();
+                    let changed = ui.add(crate::num::Num::new(&mut len).speed(0.01).range(1e-4..=1e6).max_decimals(4)).changed();
                     ui.label("  keep");
                     ui.selectable_value(&mut self.edit_anchor, 0, "start");
                     ui.selectable_value(&mut self.edit_anchor, 1, "centre");
@@ -2127,7 +2262,7 @@ impl App {
                 }
                 ui.label("Radius (mm)");
                 let mut rmm = w.r * 1000.0;
-                if ui.add(egui::DragValue::new(&mut rmm).speed(0.01).range(0.001..=1000.0).max_decimals(3)).changed() {
+                if ui.add(crate::num::Num::new(&mut rmm).speed(0.01).range(0.001..=1000.0).max_decimals(3)).changed() {
                     w.r = rmm / 1000.0;
                 }
                 ui.end_row();
@@ -2138,18 +2273,18 @@ impl App {
                         w.seg = if auto { -1 } else { 21 };
                     }
                     if !auto {
-                        ui.add(egui::DragValue::new(&mut w.seg).speed(0.2).range(1..=2000));
+                        ui.add(crate::num::Num::new(&mut w.seg).speed(0.2).range(1..=2000));
                     }
                 });
                 ui.end_row();
                 ui.label("Insulation (mm)");
                 let mut tmm = w.ins_t * 1000.0;
-                if ui.add(egui::DragValue::new(&mut tmm).speed(0.01).range(0.0..=100.0).max_decimals(3)).changed() {
+                if ui.add(crate::num::Num::new(&mut tmm).speed(0.01).range(0.0..=100.0).max_decimals(3)).changed() {
                     w.ins_t = tmm / 1000.0;
                 }
                 ui.horizontal(|ui| {
                     ui.label("εr");
-                    ui.add(egui::DragValue::new(&mut w.ins_eps).speed(0.01).range(1.0..=20.0).max_decimals(2));
+                    ui.add(crate::num::Num::new(&mut w.ins_eps).speed(0.01).range(1.0..=20.0).max_decimals(2));
                 });
                 ui.end_row();
             });
@@ -2241,7 +2376,7 @@ impl App {
                     ui.add(egui::Slider::new(&mut self.goals.w_fb, 0.0..=10.0));
                     ui.end_row();
                     ui.label("Most steps");
-                    ui.add(egui::DragValue::new(&mut self.goals.max_iter).range(1..=1000));
+                    ui.add(crate::num::Num::new(&mut self.goals.max_iter).range(1..=1000));
                     ui.end_row();
                     ui.label("Threads");
                     ui.add(egui::Slider::new(&mut self.threads, 1..=self.max_threads));
@@ -2337,7 +2472,7 @@ fn engine_pick(ui: &mut egui::Ui, id: &str, e: &mut Engine) {
 /// A length held in metres, edited in millimetres.
 fn mm_value(ui: &mut egui::Ui, m: &mut f64, range: std::ops::RangeInclusive<f64>) -> egui::Response {
     let mut mm = *m * 1000.0;
-    let r = ui.add(egui::DragValue::new(&mut mm).speed(0.5).range(range).max_decimals(2));
+    let r = ui.add(crate::num::Num::new(&mut mm).speed(0.5).range(range).max_decimals(2));
     if r.changed() {
         *m = mm / 1000.0;
     }
@@ -2365,7 +2500,7 @@ fn pos_pick(ui: &mut egui::Ui, id: impl std::hash::Hash + std::fmt::Debug, pos: 
         });
         if label == "custom" {
             let mut pct = *pos * 100.0;
-            if ui.add(egui::DragValue::new(&mut pct).speed(0.5).range(0.1..=99.9).suffix(" %")).changed() {
+            if ui.add(crate::num::Num::new(&mut pct).speed(0.5).range(0.1..=99.9).suffix(" %")).changed() {
                 *pos = pct / 100.0;
             }
         }
@@ -2397,18 +2532,18 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
         ui.end_row();
         if ant.ground.kind != GroundKind::Free {
             ui.label("Add height (m)");
-            ui.add(egui::DragValue::new(&mut ant.ground.add_height).speed(0.1).range(0.0..=10000.0));
+            ui.add(crate::num::Num::new(&mut ant.ground.add_height).speed(0.1).range(0.0..=10000.0));
             ui.end_row();
         }
         if ant.ground.kind == GroundKind::Real {
             ui.label("Ground εr");
             ui.horizontal(|ui| {
-                ui.add(egui::DragValue::new(&mut ant.ground.eps_r).speed(0.1).range(1.0..=100.0));
+                ui.add(crate::num::Num::new(&mut ant.ground.eps_r).speed(0.1).range(1.0..=100.0));
                 ground_preset(ui, &mut ant.ground.eps_r, &mut ant.ground.sigma_ms);
             });
             ui.end_row();
             ui.label("Ground σ (mS/m)");
-            ui.add(egui::DragValue::new(&mut ant.ground.sigma_ms).speed(0.1).range(0.0..=10000.0));
+            ui.add(crate::num::Num::new(&mut ant.ground.sigma_ms).speed(0.1).range(0.0..=10000.0));
             ui.end_row();
         }
         if ant.ground.kind != GroundKind::Free {
@@ -2422,12 +2557,12 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
             if sm.enabled {
                 ui.label("   εr");
                 ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(&mut sm.eps_r).speed(0.1).range(1.0..=100.0));
+                    ui.add(crate::num::Num::new(&mut sm.eps_r).speed(0.1).range(1.0..=100.0));
                     ground_preset(ui, &mut sm.eps_r, &mut sm.sigma_ms);
                 });
                 ui.end_row();
                 ui.label("   σ (mS/m)");
-                ui.add(egui::DragValue::new(&mut sm.sigma_ms).speed(1.0).range(0.0..=10000.0));
+                ui.add(crate::num::Num::new(&mut sm.sigma_ms).speed(1.0).range(0.0..=10000.0));
                 ui.end_row();
                 ui.label("   Boundary");
                 ui.horizontal(|ui| {
@@ -2437,20 +2572,20 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
                 ui.end_row();
                 if sm.circle {
                     ui.label("   Radius (m)");
-                    ui.add(egui::DragValue::new(&mut sm.distance).speed(0.5).range(0.0..=100000.0)).on_hover_text("The second ground lies outside this circle. 0 = everywhere.");
+                    ui.add(crate::num::Num::new(&mut sm.distance).speed(0.5).range(0.0..=100000.0)).on_hover_text("The second ground lies outside this circle. 0 = everywhere.");
                 } else {
                     ui.label("   Distance (m)");
                     ui.horizontal(|ui| {
-                        ui.add(egui::DragValue::new(&mut sm.distance).speed(0.5).range(-100000.0..=100000.0))
+                        ui.add(crate::num::Num::new(&mut sm.distance).speed(0.5).range(-100000.0..=100000.0))
                             .on_hover_text("From the origin to the boundary, measured toward the bearing.");
                         ui.label("toward bearing");
-                        ui.add(egui::DragValue::new(&mut sm.bearing_deg).speed(1.0).range(0.0..=360.0).suffix("°"))
+                        ui.add(crate::num::Num::new(&mut sm.bearing_deg).speed(1.0).range(0.0..=360.0).suffix("°"))
                             .on_hover_text("Azimuth (as in the patterns: 0° = +X, 90° = +Y) of the direction in which the second ground lies.");
                     });
                 }
                 ui.end_row();
                 ui.label("   Drop (m)");
-                ui.add(egui::DragValue::new(&mut sm.drop).speed(0.1).range(0.0..=1000.0)).on_hover_text("How far the second ground's surface lies below the main ground (a cliff or bank).");
+                ui.add(crate::num::Num::new(&mut sm.drop).speed(0.1).range(0.0..=1000.0)).on_hover_text("How far the second ground's surface lies below the main ground (a cliff or bank).");
                 ui.end_row();
                 ui.label("   Transition");
                 ui.horizontal(|ui| {
@@ -2476,10 +2611,10 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
         ui.end_row();
         if ant.material.is_user() {
             ui.label("Resistivity (Ω·m)");
-            ui.add(egui::DragValue::new(&mut ant.user_rho).speed(1e-9).range(1e-9..=1.0).max_decimals(12));
+            ui.add(crate::num::Num::new(&mut ant.user_rho).speed(1e-9).range(1e-9..=1.0).max_decimals(12));
             ui.end_row();
             ui.label("Permeability");
-            ui.add(egui::DragValue::new(&mut ant.user_mu).speed(0.1).range(1.0..=100000.0));
+            ui.add(crate::num::Num::new(&mut ant.user_mu).speed(0.1).range(1.0..=100000.0));
             ui.end_row();
         }
         ui.label("Wire ends");
@@ -2493,13 +2628,13 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
         ui.label("Rear range for F/B");
         ui.horizontal(|ui| {
             ui.label("azimuth");
-            ui.add(egui::DragValue::new(&mut ant.fb_az).speed(1.0).range(0.0..=360.0).suffix("°"));
+            ui.add(crate::num::Num::new(&mut ant.fb_az).speed(1.0).range(0.0..=360.0).suffix("°"));
             ui.label("vertical");
-            ui.add(egui::DragValue::new(&mut ant.fb_el).speed(1.0).range(0.0..=180.0).suffix("°"));
+            ui.add(crate::num::Num::new(&mut ant.fb_el).speed(1.0).range(0.0..=180.0).suffix("°"));
         });
         ui.end_row();
         ui.label("SWR reference (Ω)");
-        ui.add(egui::DragValue::new(&mut ant.z0).speed(1.0).range(1.0..=10000.0));
+        ui.add(crate::num::Num::new(&mut ant.z0).speed(1.0).range(1.0..=10000.0));
         ui.end_row();
     });
 }
@@ -2507,6 +2642,7 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        crate::theme::frame(&ctx);
         self.frame += 1;
         self.poll();
         if self.busy() {
@@ -2558,6 +2694,9 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
         }
         egui::Panel::top("menu").show(ui, |ui| self.menu(ui));
+        if narrow(&ctx) {
+            self.nav(ui); // the bottom bar goes below the status line
+        }
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(format!("⚙ {} / {} threads", self.threads, self.max_threads)).color(Color32::from_rgb(60, 90, 160)));
@@ -2572,6 +2711,9 @@ impl eframe::App for App {
             self.help.show(self.tab.help_page());
         }
         crate::help::window(&ctx, &mut self.help);
+        if !narrow(&ctx) {
+            self.nav(ui);
+        }
         egui::CentralPanel::default().show(ui, |ui| match self.tab {
             Tab::Geometry => self.geometry(ui),
             Tab::View => self.view_tab(ui),
@@ -2594,6 +2736,32 @@ impl eframe::App for App {
             }
         }
     }
+}
+
+/// One entry of the tab rail or bottom bar: an icon over its name, on a tinted pill when selected.
+fn nav_item(ui: &mut egui::Ui, selected: bool, icon: &str, label: &str, size: Vec2) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    if ui.is_rect_visible(rect) {
+        let v = ui.visuals();
+        let accent = v.selection.stroke.color;
+        let pill = rect.shrink2(Vec2::new(4.0, 2.0));
+        if selected {
+            ui.painter().rect_filled(pill, 10.0, v.selection.bg_fill);
+        } else if resp.hovered() {
+            ui.painter().rect_filled(pill, 10.0, v.widgets.hovered.weak_bg_fill);
+        }
+        let fg = if selected { accent } else { v.widgets.inactive.fg_stroke.color };
+        let c = rect.center();
+        ui.painter().text(c - Vec2::new(0.0, 8.0), egui::Align2::CENTER_CENTER, icon, egui::FontId::proportional(20.0), fg);
+        // shrink the name to fit a narrow cell
+        let mut font = egui::FontId::proportional(11.0);
+        let w = ui.painter().layout_no_wrap(label.to_owned(), font.clone(), fg).size().x;
+        if w > size.x - 4.0 {
+            font.size *= (size.x - 4.0) / w;
+        }
+        ui.painter().text(c + Vec2::new(0.0, 13.0), egui::Align2::CENTER_CENTER, label, font, fg);
+    }
+    resp
 }
 
 /// Range for a view scroll bar: a few view widths at the current zoom, always

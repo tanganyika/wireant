@@ -11,10 +11,11 @@ Stand-ins and shortcuts:
   is copied into the app's storage and each later Save is copied back to it; a saved file is
   written to the app's `exports` folder, then copied where the user picks.
 - Tools → Preferences' NEC program picker says it isn't available (no external NEC on Android).
-- The UI is zoomed to 75%. Below 720 points across (a phone held upright) the shared
-  `src/app.rs` switches to a narrow layout: tabs on their own row, toolbars wrap, Calculate
-  and Far field scroll as one column, Geometry stacks its side-by-side sections and scrolls
-  the wire table sideways. The Optimizer keeps its desktop layout.
+- The UI is shared with the desktop (`src/theme.rs`, `src/num.rs`, `src/app.rs`): below 720
+  points across the tabs move to a bottom bar, Geometry's sections become foldable cards with
+  one line per wire (tap it for the wire editor), and Calculate puts the button and the answer
+  first. `theme::touch` gives finger-sized targets and turns number fields into tap-to-type
+  boxes, so swiping across them scrolls. Light or dark follows the phone.
 - Fonts: egui's bundled emoji fonts (`monochrome_emoji_fonts`), then Hack and Android's
   `NotoSansSymbols-Regular-Subsetted.ttf` as fallbacks for ● ↶ → ∥ ⊥ ✘. 🧲 still shows as a box
   (only in the colour emoji font).

@@ -159,13 +159,13 @@ pub fn resonance_window(ctx: &egui::Context, st: &mut ToolsState, z0: f64, busy:
     egui::Window::new("Resonance finder").open(&mut open).default_width(640.0).show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.label("From");
-            ui.add(egui::DragValue::new(&mut st.res_f0).speed(0.01).range(0.001..=100000.0).suffix(" MHz"));
+            ui.add(crate::num::Num::new(&mut st.res_f0).speed(0.01).range(0.001..=100000.0).suffix(" MHz"));
             ui.label("to");
-            ui.add(egui::DragValue::new(&mut st.res_f1).speed(0.01).range(0.001..=100000.0).suffix(" MHz"));
+            ui.add(crate::num::Num::new(&mut st.res_f1).speed(0.01).range(0.001..=100000.0).suffix(" MHz"));
             ui.label("points");
-            ui.add(egui::DragValue::new(&mut st.res_steps).speed(1.0).range(11..=2001));
+            ui.add(crate::num::Num::new(&mut st.res_steps).speed(1.0).range(11..=2001));
             ui.label("bandwidth at SWR");
-            ui.add(egui::DragValue::new(&mut st.res_limit).speed(0.05).range(1.05..=10.0));
+            ui.add(crate::num::Num::new(&mut st.res_limit).speed(0.05).range(1.05..=10.0));
         });
         ui.horizontal(|ui| {
             if ui.add_enabled(!busy && st.res_f1 > st.res_f0, egui::Button::new("▶ Find resonances")).clicked() {
@@ -253,10 +253,10 @@ pub fn match_window(ctx: &egui::Context, st: &mut ToolsState, have_last: bool) -
         egui::Grid::new("match_in").spacing([8.0, 6.0]).show(ui, |ui| {
             ui.label("Antenna impedance");
             ui.horizontal(|ui| {
-                if ui.add(egui::DragValue::new(&mut st.m_r).speed(0.1).range(0.01..=100000.0).prefix("R ").suffix(" Ω")).changed() {
+                if ui.add(crate::num::Num::new(&mut st.m_r).speed(0.1).range(0.01..=100000.0).prefix("R ").suffix(" Ω")).changed() {
                     st.m_set = true;
                 }
-                if ui.add(egui::DragValue::new(&mut st.m_x).speed(0.1).range(-100000.0..=100000.0).prefix("X ").suffix(" Ω")).changed() {
+                if ui.add(crate::num::Num::new(&mut st.m_x).speed(0.1).range(-100000.0..=100000.0).prefix("X ").suffix(" Ω")).changed() {
                     st.m_set = true;
                 }
                 if ui.add_enabled(have_last, egui::Button::new("From last calculation")).clicked() {
@@ -265,12 +265,12 @@ pub fn match_window(ctx: &egui::Context, st: &mut ToolsState, have_last: bool) -
             });
             ui.end_row();
             ui.label("Frequency");
-            if ui.add(egui::DragValue::new(&mut st.m_f).speed(0.01).range(0.001..=100000.0).suffix(" MHz")).changed() {
+            if ui.add(crate::num::Num::new(&mut st.m_f).speed(0.01).range(0.001..=100000.0).suffix(" MHz")).changed() {
                 st.m_set = true;
             }
             ui.end_row();
             ui.label("Match to");
-            if ui.add(egui::DragValue::new(&mut st.m_z0).speed(0.5).range(1.0..=10000.0).suffix(" Ω")).changed() {
+            if ui.add(crate::num::Num::new(&mut st.m_z0).speed(0.5).range(1.0..=10000.0).suffix(" Ω")).changed() {
                 st.m_set = true;
             }
             ui.end_row();
@@ -335,13 +335,13 @@ pub fn match_window(ctx: &egui::Context, st: &mut ToolsState, have_last: bool) -
             MatchKind::Gamma => {
                 egui::Grid::new("gamma_in").spacing([8.0, 6.0]).show(ui, |ui| {
                     ui.label("Element diameter");
-                    ui.add(egui::DragValue::new(&mut st.g_del).speed(0.1).range(0.1..=1000.0).suffix(" mm"));
+                    ui.add(crate::num::Num::new(&mut st.g_del).speed(0.1).range(0.1..=1000.0).suffix(" mm"));
                     ui.end_row();
                     ui.label("Rod diameter");
-                    ui.add(egui::DragValue::new(&mut st.g_drod).speed(0.1).range(0.1..=1000.0).suffix(" mm"));
+                    ui.add(crate::num::Num::new(&mut st.g_drod).speed(0.1).range(0.1..=1000.0).suffix(" mm"));
                     ui.end_row();
                     ui.label("Rod spacing (centres)");
-                    ui.add(egui::DragValue::new(&mut st.g_s).speed(1.0).range(1.0..=5000.0).suffix(" mm"));
+                    ui.add(crate::num::Num::new(&mut st.g_s).speed(1.0).range(1.0..=5000.0).suffix(" mm"));
                     ui.end_row();
                 });
                 if st.g_s * 2.0 <= st.g_del + st.g_drod {
@@ -379,9 +379,9 @@ pub fn match_window(ctx: &egui::Context, st: &mut ToolsState, have_last: bool) -
                             ui.selectable_value(&mut st.c_z1, z, format!("{z} Ω"));
                         }
                     });
-                    ui.add(egui::DragValue::new(&mut st.c_z1).speed(0.5).range(1.0..=1000.0).suffix(" Ω"));
+                    ui.add(crate::num::Num::new(&mut st.c_z1).speed(0.5).range(1.0..=1000.0).suffix(" Ω"));
                     ui.label("velocity factor");
-                    ui.add(egui::DragValue::new(&mut st.c_vf).speed(0.01).range(0.3..=1.0));
+                    ui.add(crate::num::Num::new(&mut st.c_vf).speed(0.01).range(0.3..=1.0));
                 });
                 let lam = 299.792458 / st.m_f; // free-space wavelength, m
                 let len = |deg: f64, vf: f64| deg / 360.0 * lam * vf;

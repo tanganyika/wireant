@@ -362,7 +362,7 @@ pub fn window(ctx: &egui::Context, st: &mut ExposureState, ant: &Antenna, calc: 
         let f = c.result.freq_mhz;
         ui.horizontal_wrapped(|ui| {
             ui.label("PEP into the antenna");
-            ui.add(egui::DragValue::new(&mut st.pep_w).speed(1.0).range(0.0..=100_000.0).suffix(" W"));
+            ui.add(crate::num::Num::new(&mut st.pep_w).speed(1.0).range(0.0..=100_000.0).suffix(" W"));
             ui.label("Mode");
             egui::ComboBox::from_id_salt("exp_mode").selected_text(MODES[st.mode].0).show_ui(ui, |ui| {
                 for (i, (name, _)) in MODES.iter().enumerate() {
@@ -371,7 +371,7 @@ pub fn window(ctx: &egui::Context, st: &mut ExposureState, ant: &Antenna, calc: 
             });
             ui.label("On air");
             let mut on = st.on_air * 100.0;
-            if ui.add(egui::DragValue::new(&mut on).speed(1.0).range(1.0..=100.0).suffix(" %")).on_hover_text("Share of the averaging time (6 minutes for ICNIRP 1998 and the FCC's controlled limits, 30 minutes for the FCC's general population and ICNIRP 2020) spent transmitting.").changed() {
+            if ui.add(crate::num::Num::new(&mut on).speed(1.0).range(1.0..=100.0).suffix(" %")).on_hover_text("Share of the averaging time (6 minutes for ICNIRP 1998 and the FCC's controlled limits, 30 minutes for the FCC's general population and ICNIRP 2020) spent transmitting.").changed() {
                 st.on_air = on / 100.0;
             }
             ui.label(RichText::new(format!("= {:.1} W average", st.avg_w())).strong());
@@ -535,10 +535,10 @@ fn slice_ui(ui: &mut egui::Ui, st: &mut ExposureState, c: &FullResult, ant: &Ant
         }
         if st.setup.plane == Plane::Horizontal {
             ui.label(if ant.ground.kind == GroundKind::Free { "z" } else { "height" });
-            ui.add(egui::DragValue::new(&mut st.setup.height).speed(0.1).range(-1000.0..=1000.0).suffix(" m"));
+            ui.add(crate::num::Num::new(&mut st.setup.height).speed(0.1).range(-1000.0..=1000.0).suffix(" m"));
         }
         ui.label("reaching");
-        ui.add(egui::DragValue::new(&mut st.setup.margin).speed(0.5).range(0.5..=500.0).suffix(" m"))
+        ui.add(crate::num::Num::new(&mut st.setup.margin).speed(0.5).range(0.5..=500.0).suffix(" m"))
             .on_hover_text("How far the plane reaches past the antenna on every side.");
         let busy = st.job.is_some();
         if ui.add_enabled(!busy, egui::Button::new(if busy { "Working…" } else { "▶ Calculate fields" })).clicked() {
@@ -609,7 +609,7 @@ fn draw_map(ui: &mut egui::Ui, map: &Map, avg_w: f64, std: Standard, lim: (f64, 
             painter.rect_filled(Rect::from_two_pos(a, b).intersect(Rect::from_two_pos(to(map.u.0, map.v.1), to(map.u.1, map.v.0))), 0.0, ratio_colour(r));
         }
     }
-    painter.rect_stroke(Rect::from_two_pos(to(map.u.0, map.v.1), to(map.u.1, map.v.0)), 0.0, Stroke::new(1.0, crate::plots::GRID), egui::StrokeKind::Outside);
+    painter.rect_stroke(Rect::from_two_pos(to(map.u.0, map.v.1), to(map.u.1, map.v.0)), 0.0, Stroke::new(1.0, crate::plots::grid()), egui::StrokeKind::Outside);
     if map.ground && map.setup.plane != Plane::Horizontal {
         painter.line_segment([to(map.u.0, 0.0), to(map.u.1, 0.0)], Stroke::new(2.0, Color32::from_rgb(150, 120, 70)));
     }
@@ -618,7 +618,7 @@ fn draw_map(ui: &mut egui::Ui, map: &Map, avg_w: f64, std: Standard, lim: (f64, 
     }
     // axis labels: the ends of each side
     let (un, vn) = map.setup.plane.axes();
-    let ink = crate::plots::INK;
+    let ink = crate::plots::ink();
     let f = FontId::proportional(11.0);
     painter.text(to(map.u.0, map.v.0) + Vec2::new(0.0, 4.0), Align2::LEFT_TOP, format!("{un} {:.1} m", map.u.0), f.clone(), ink);
     painter.text(to(map.u.1, map.v.0) + Vec2::new(0.0, 4.0), Align2::RIGHT_TOP, format!("{:.1} m", map.u.1), f.clone(), ink);
