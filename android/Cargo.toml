@@ -53,7 +53,4 @@ orientation = "unspecified"
 [profile.release]
 opt-level = 3
 
-# proof of concept: sign release builds with the SDK's debug key
-[package.metadata.android.signing.release]
-path = "/home/rbaker/.android/debug.keystore"
-keystore_password = "android"
+# signing: build-apk.sh passes the key to cargo-apk (CARGO_APK_RELEASE_KEYSTORE)

@@ -20,13 +20,23 @@ Stand-ins and shortcuts:
   `NotoSansSymbols-Regular-Subsetted.ttf` as fallbacks for ● ↶ → ∥ ⊥ ✘.
 - Signed with the SDK debug key.
 
-Build and run on the emulator or a phone:
+Build and run on the emulator or a phone (needs the Android SDK with an NDK, JDK 17 and
+`cargo install cargo-apk`; the paths below are the defaults the script assumes):
 
-    export ANDROID_HOME=~/Android/Sdk ANDROID_NDK_ROOT=~/Android/Sdk/ndk/30.0.16248370
-    export JAVA_HOME=~/Android/jdk17 PATH=~/Android/jdk17/bin:$PATH
+    export ANDROID_HOME=~/Android/Sdk JAVA_HOME=~/Android/jdk17
     ./build-apk.sh                        # phones; ./build-apk.sh x86_64-linux-android for the emulator
     adb install -r target/release/apk/wireant.apk
 
 `build-apk.sh` runs `cargo apk build`, then compiles the Java side with javac and d8, adds
 `classes.dex` to the APK and signs it again (plain `cargo apk build` gives an APK without it,
 which fails to start).
+
+Signing: `KEYSTORE` and `KEYSTORE_PASSWORD` (plus `KEY_ALIAS`, and `KEY_PASSWORD` if the key's
+differs from the store's) name the key; without them the SDK's debug key, created if missing.
+Android only installs an update over an APK signed with the same key.
+
+CI (`.github/workflows/build.yml`, job `android`) builds the arm64 APK on every push to main
+and every pull request, and attaches it to the release for a version tag. It signs with the
+repository secrets `ANDROID_KEYSTORE` (the keystore file, base64) and
+`ANDROID_KEYSTORE_PASSWORD`; without them it uses a throwaway key. `android/Cargo.toml`'s
+version must match the desktop's.
