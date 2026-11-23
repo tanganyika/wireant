@@ -104,7 +104,12 @@ pub fn polar(
     info: &[String],
     cursor: &mut Option<f64>,
 ) {
-    let (resp, painter) = ui.allocate_painter(Vec2::new(size, size + 18.0 + 15.0 * info.len() as f32), Sense::click_and_drag());
+    // the lines under the plot wrap to its width (a phone is narrower than they are)
+    let info: Vec<_> = info.iter().map(|l| ui.painter().layout(l.clone(), FontId::proportional(12.0), ink(), size - 16.0)).collect();
+    let info_h: f32 = info.iter().map(|g| g.size().y).sum();
+    // on a touch screen a swipe over the plot scrolls the page; a tap reads the gain
+    let sense = if crate::theme::is_touch() { Sense::click() } else { Sense::click_and_drag() };
+    let (resp, painter) = ui.allocate_painter(Vec2::new(size, size + 18.0 + info_h), sense);
     let rect = resp.rect;
     painter.rect_filled(rect, 4.0, plot_bg());
     painter.rect_stroke(rect, 4.0, Stroke::new(1.0, grid()), StrokeKind::Inside);
@@ -165,7 +170,8 @@ pub fn polar(
         PolarKind::Elevation { ground: true } => 180.0,
         _ => 360.0,
     };
-    if resp.is_pointer_button_down_on() || resp.clicked() || resp.dragged() {
+    let pressed = if crate::theme::is_touch() { resp.clicked() } else { resp.is_pointer_button_down_on() || resp.clicked() || resp.dragged() };
+    if pressed {
         if let Some(p) = resp.interact_pointer_pos() {
             let d = p - c;
             if d.length() > 4.0 && d.length() < r0 + 14.0 {
@@ -225,12 +231,13 @@ pub fn polar(
             yy += 16.0;
         }
     } else if resp.hovered() {
-        painter.text(rect.right_top() + Vec2::new(-8.0, 4.0), Align2::RIGHT_TOP, "click the plot to read the gain", FontId::proportional(11.0), Color32::GRAY);
+        painter.text(rect.right_top() + Vec2::new(-8.0, 4.0), Align2::RIGHT_TOP, if crate::theme::is_touch() { "tap the plot to read the gain" } else { "click the plot to read the gain" }, FontId::proportional(11.0), Color32::GRAY);
     }
     let mut y = c.y + r0 + 18.0;
-    for line in info {
-        painter.text(Pos2::new(rect.left() + 8.0, y), Align2::LEFT_TOP, line, FontId::proportional(12.0), ink());
-        y += 15.0;
+    for g in info {
+        let h = g.size().y;
+        painter.galley(Pos2::new(rect.left() + 8.0, y), g, ink());
+        y += h;
     }
 }
 

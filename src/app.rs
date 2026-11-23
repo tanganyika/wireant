@@ -1748,11 +1748,29 @@ impl App {
     fn last_result(&mut self, ui: &mut egui::Ui) {
         if let Some(c) = &self.calc {
             let r = &c.result;
-            egui::Grid::new("lastres").min_row_height(ui.text_style_height(&egui::TextStyle::Body)).show(ui, |ui| {
-                let row = |ui: &mut egui::Ui, a: &str, b: String| {
-                    ui.label(a);
-                    ui.label(RichText::new(b).monospace());
-                    ui.end_row();
+            // a grid on a desktop; on a phone rows with a fixed label column, so the values
+            // wrap at word breaks rather than run off the screen (a grid can't wrap a column)
+            let phone = narrow(ui.ctx());
+            let lw = 118.0;
+            let body = |ui: &mut egui::Ui| {
+                // returns the name's label, for a hover note
+                let row = |ui: &mut egui::Ui, a: &str, b: String| -> egui::Response {
+                    if phone {
+                        ui.horizontal_top(|ui| {
+                            let r = ui.allocate_ui_with_layout(egui::vec2(lw, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                                ui.set_width(lw);
+                                ui.label(a)
+                            });
+                            ui.add(egui::Label::new(RichText::new(b).monospace()).wrap());
+                            r.inner
+                        })
+                        .inner
+                    } else {
+                        let r = ui.label(a);
+                        ui.label(RichText::new(b).monospace());
+                        ui.end_row();
+                        r
+                    }
                 };
                 row(ui, "Impedance", format!("{:.2} {} j{:.2} Ω", r.z.re, if r.z.im < 0.0 { "−" } else { "+" }, r.z.im.abs()));
                 row(ui, &format!("SWR ({:.0} Ω)", self.ant.z0), format!("{:.2}", r.swr));
@@ -1760,10 +1778,8 @@ impl App {
                 row(ui, "F/B", format!("{:.2} dB", r.fb_db));
                 row(ui, "Beamwidth", format!("az {}  el {}  (−3 dB)", crate::mom::bw_text(c.patterns.az_beamwidth()), crate::mom::bw_text(c.patterns.el_beamwidth())));
                 row(ui, "Efficiency", crate::mom::pct(r.eff));
-                ui.label("NEC efficiency").on_hover_text(crate::mom::NEC_EFFICIENCY_NOTE);
-                ui.label(RichText::new(format!("{}  (ground loss not counted)", crate::mom::pct(c.power.nec_efficiency()))).monospace())
+                row(ui, "NEC efficiency", format!("{}  (ground loss not counted)", crate::mom::pct(c.power.nec_efficiency())))
                     .on_hover_text(crate::mom::NEC_EFFICIENCY_NOTE);
-                ui.end_row();
                 row(ui, "Max at", format!("az {:.1}°  el {:.1}°", r.az_max, r.el_max));
                 row(ui, "Polarization", (if r.horizontal_pol { "Horizontal" } else { "Vertical" }).to_string());
                 row(ui, "Segments", format!("{} ({} unknowns)", r.n_segs, r.n_unknowns));
@@ -1771,7 +1787,12 @@ impl App {
                 row(ui, "  matrix fill", format!("{:.1} ms", r.t_fill_ms));
                 row(ui, "  solve", format!("{:.1} ms", r.t_solve_ms));
                 row(ui, "  patterns", format!("{:.1} ms", r.t_far_ms));
-            });
+            };
+            if phone {
+                body(ui);
+            } else {
+                egui::Grid::new("lastres").min_row_height(ui.text_style_height(&egui::TextStyle::Body)).show(ui, body);
+            }
         }
     }
 
@@ -1782,44 +1803,48 @@ impl App {
                 self.history.clear();
             }
         });
-        egui::ScrollArea::both().id_salt("hist").max_height(170.0).auto_shrink([false, true]).stick_to_bottom(true).show(ui, |ui| {
-            egui::Grid::new("history").striped(true).spacing([14.0, 3.0]).show(ui, |ui| {
-                // column order and names as in the original's results grid (english.mmn Grid1)
-                for h in ["No.", "F (MHz)", "R (Ohm)", "jX (Ohm)", "SWR", "Gh dBd", "Ga dBi", "F/B dB", "Elev.", "Eff. %", "Ground", "Add H.", "Polar.", "ms", "Threads"] {
-                    ui.label(RichText::new(h).strong());
-                }
-                ui.end_row();
-                for (i, r) in self.history.iter().enumerate() {
-                    ui.label(format!("{}", i + 1));
-                    ui.label(format!("{:.3}", r.freq_mhz));
-                    ui.label(format!("{:.2}", r.z.re));
-                    ui.label(format!("{:.2}", r.z.im));
-                    let swr_col = if r.swr < 1.5 { Color32::from_rgb(0, 130, 40) } else if r.swr < 3.0 { Color32::from_rgb(170, 110, 0) } else { Color32::from_rgb(190, 30, 30) };
-                    ui.label(RichText::new(format!("{:.2}", r.swr)).color(swr_col));
-                    ui.label(format!("{:.2}", r.ga_dbi - 2.15));
-                    ui.label(format!("{:.2}", r.ga_dbi));
-                    ui.label(format!("{:.2}", r.fb_db));
-                    ui.label(format!("{:.1}", r.el_max));
-                    ui.label(if r.eff.is_finite() { format!("{:.1}", r.eff * 100.0) } else { "—".into() });
-                    ui.label(match r.ground {
-                        GroundKind::Free => "Free",
-                        GroundKind::Perfect => "Perfect",
-                        GroundKind::Real => "Real",
-                    });
-                    ui.label(if r.ground == GroundKind::Free { "—".into() } else { format!("{:.2}", r.add_height) });
-                    ui.label(if r.horizontal_pol { "hori." } else { "vert." });
-                    ui.label(format!("{:.0}", r.t_total_ms));
-                    ui.label(format!("{}", r.threads));
+        if narrow(ui.ctx()) {
+            self.results_list(ui);
+        } else {
+            egui::ScrollArea::both().id_salt("hist").max_height(170.0).auto_shrink([false, true]).stick_to_bottom(true).show(ui, |ui| {
+                egui::Grid::new("history").striped(true).spacing([14.0, 3.0]).show(ui, |ui| {
+                    // column order and names as in the original's results grid (english.mmn Grid1)
+                    for h in ["No.", "F (MHz)", "R (Ohm)", "jX (Ohm)", "SWR", "Gh dBd", "Ga dBi", "F/B dB", "Elev.", "Eff. %", "Ground", "Add H.", "Polar.", "ms", "Threads"] {
+                        ui.label(RichText::new(h).strong());
+                    }
                     ui.end_row();
+                    for (i, r) in self.history.iter().enumerate() {
+                        ui.label(format!("{}", i + 1));
+                        ui.label(format!("{:.3}", r.freq_mhz));
+                        ui.label(format!("{:.2}", r.z.re));
+                        ui.label(format!("{:.2}", r.z.im));
+                        let swr_col = if r.swr < 1.5 { Color32::from_rgb(0, 130, 40) } else if r.swr < 3.0 { Color32::from_rgb(170, 110, 0) } else { Color32::from_rgb(190, 30, 30) };
+                        ui.label(RichText::new(format!("{:.2}", r.swr)).color(swr_col));
+                        ui.label(format!("{:.2}", r.ga_dbi - 2.15));
+                        ui.label(format!("{:.2}", r.ga_dbi));
+                        ui.label(format!("{:.2}", r.fb_db));
+                        ui.label(format!("{:.1}", r.el_max));
+                        ui.label(if r.eff.is_finite() { format!("{:.1}", r.eff * 100.0) } else { "—".into() });
+                        ui.label(match r.ground {
+                            GroundKind::Free => "Free",
+                            GroundKind::Perfect => "Perfect",
+                            GroundKind::Real => "Real",
+                        });
+                        ui.label(if r.ground == GroundKind::Free { "—".into() } else { format!("{:.2}", r.add_height) });
+                        ui.label(if r.horizontal_pol { "hori." } else { "vert." });
+                        ui.label(format!("{:.0}", r.t_total_ms));
+                        ui.label(format!("{}", r.threads));
+                        ui.end_row();
+                    }
+                });
+                if self.history.is_empty() {
+                    ui.label(RichText::new("Press Calculate to analyse the antenna.").italics().color(Color32::GRAY));
                 }
             });
-            if self.history.is_empty() {
-                ui.label(RichText::new("Press Calculate to analyse the antenna.").italics().color(Color32::GRAY));
-            }
-        });
+        }
         if let Some(c) = &self.calc {
             let p = &c.power;
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new("Power:").strong());
                 let mut hover = format!("Where the input power goes. {} The losses are the engine's own.", crate::mom::RADIATED_NOTE);
                 if p.ground.is_some() {
@@ -1832,6 +1857,63 @@ impl App {
                 ui.label(p.line()).on_hover_text(hover);
             });
         }
+    }
+
+    /// The results table on a phone: a line per run that wraps, not 15 columns to scroll.
+    fn results_list(&mut self, ui: &mut egui::Ui) {
+        if self.history.is_empty() {
+            ui.label(RichText::new("Press Calculate to analyse the antenna.").italics().color(Color32::GRAY));
+            return;
+        }
+        // in the page itself (a scroll area inside the page's own scrolls badly by touch):
+        // the latest few runs, newest first
+        const SHOWN: usize = 8;
+        let n = self.history.len();
+        if n > SHOWN {
+            ui.label(RichText::new(format!("The last {SHOWN} of {n} runs:")).small().color(Color32::GRAY));
+        }
+        ui.scope(|ui| {
+            // rows of text, not finger-sized ones (set before horizontal_wrapped, which takes
+            // its row height when it starts)
+            ui.spacing_mut().item_spacing = egui::vec2(12.0, 2.0);
+            ui.spacing_mut().interact_size.y = 0.0;
+            for (k, (i, r)) in self.history.iter().enumerate().rev().take(SHOWN).enumerate() {
+                if k > 0 {
+                    ui.separator();
+                }
+                ui.horizontal_wrapped(|ui| {
+                    // each name and value stays together; the line breaks between them
+                    // (one label each: horizontal_wrapped can only wrap widgets it can measure)
+                    let pair = |ui: &mut egui::Ui, k: &str, v: RichText| {
+                        let mut job = egui::text::LayoutJob::default();
+                        let (st, font, al) = (ui.style().clone(), egui::FontSelection::Default, egui::Align::Center);
+                        RichText::new(format!("{k} ")).color(Color32::GRAY).small().append_to(&mut job, &st, font.clone(), al);
+                        v.monospace().append_to(&mut job, &st, font, al);
+                        ui.add(egui::Label::new(job).extend());
+                    };
+                    ui.label(RichText::new(format!("{}", i + 1)).strong());
+                    pair(ui, "F", format!("{:.3} MHz", r.freq_mhz).into());
+                    pair(ui, "Z", format!("{:.2} {} j{:.2}", r.z.re, if r.z.im < 0.0 { "−" } else { "+" }, r.z.im.abs()).into());
+                    let swr_col = if r.swr < 1.5 { Color32::from_rgb(0, 130, 40) } else if r.swr < 3.0 { Color32::from_rgb(170, 110, 0) } else { Color32::from_rgb(190, 30, 30) };
+                    pair(ui, "SWR", RichText::new(format!("{:.2}", r.swr)).color(swr_col));
+                    pair(ui, "Ga", format!("{:.2} dBi", r.ga_dbi).into());
+                    pair(ui, "Gh", format!("{:.2} dBd", r.ga_dbi - 2.15).into());
+                    pair(ui, "F/B", format!("{:.2} dB", r.fb_db).into());
+                    pair(ui, "Elev.", format!("{:.1}°", r.el_max).into());
+                    if r.eff.is_finite() {
+                        pair(ui, "Eff.", format!("{:.1} %", r.eff * 100.0).into());
+                    }
+                    let ground = match r.ground {
+                        GroundKind::Free => "free space".to_string(),
+                        GroundKind::Perfect => format!("perfect ground +{:.2} m", r.add_height),
+                        GroundKind::Real => format!("real ground +{:.2} m", r.add_height),
+                    };
+                    ui.add(egui::Label::new(RichText::new(ground).small()).extend());
+                    ui.label(RichText::new(if r.horizontal_pol { "hori." } else { "vert." }).small());
+                    ui.add(egui::Label::new(RichText::new(format!("{:.0} ms, {} threads", r.t_total_ms, r.threads)).small().color(Color32::GRAY)).extend());
+                });
+            }
+        });
     }
 
     fn patterns(&mut self, ui: &mut egui::Ui, size: f32) {
@@ -1881,7 +1963,8 @@ impl App {
                 });
                 self.results_table(ui);
                 ui.add_space(8.0);
-                let size = (ui.available_width() - 10.0).clamp(200.0, 520.0);
+                // the visible width: available_width() here can be wider than the screen
+                let size = (ui.clip_rect().width() - 12.0).clamp(200.0, 520.0);
                 self.patterns(ui, size);
             });
             return;
@@ -2721,7 +2804,7 @@ impl eframe::App for App {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(format!("⚙ {} / {} threads", self.threads, self.max_threads)).color(Color32::from_rgb(60, 90, 160)));
                 ui.separator();
-                ui.label(&self.status);
+                ui.add(egui::Label::new(&self.status).truncate());
             });
         });
         self.tool_windows(&ctx);
