@@ -58,6 +58,38 @@ the ground at the origin, a quick guide to which low angles it can block.
 or feet, as terrain-profile tools export them. Lines that don't start with two numbers (headers,
 comments) are skipped, and heights above sea level are made relative to the first point.
 
+### Terrain from elevation data
+
+**🗺 From elevation data…** on the Terrain card fills it with profiles all round the antenna
+from map elevation data, as Radio Mobile and HFTA's helper tools use. Give:
+
+- **Antenna at**: the latitude and longitude of the model's origin, in degrees (south and west
+  negative, e.g. `53.1177, -4.1302`, or `53.1177N 4.1302W`). Most map sites show them when you
+  right-click a place. A 10-character Maidenhead locator also works; a 6-character one is a
+  square several km across, far too coarse for the ground near the antenna.
+- **+X axis points to**: the compass bearing of the model's +X axis, the same setting as the
+  Great circle map's. Profiles are in the model's azimuths, as the patterns are.
+- **Profiles** (36, every 10°, by default) and how far out they run (5 km by default). Low rays
+  reflect from up to a few km away; hills further out only cut the very lowest angles.
+
+**Fetch terrain** replaces the card's profiles (Undo in the View tab brings the old ones back).
+The heights are relative to the ground at the antenna and fall away with the earth's curvature
+(using 4/3 of the earth's radius, for ordinary refraction): about 1.5 m at 5 km. Each profile
+keeps only the points needed to stay within 1 m of the data.
+
+The data is the [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Mapzen /
+Tilezen), built from SRTM, USGS 3DEP, GMTED2010, ETOPO1, Geoscience Australia, Canada CDEM,
+EU-DEM, Kartverket, LINZ and others, on a grid about 25 to 38 m across. Things to know:
+
+- It measures the surface, partly including trees and buildings, and smooths sharp peaks and
+  small banks (Snowdon's summit comes out about 40 m low). At HF this matters little; check the
+  profiles near the antenna against what you know of the site.
+- The tiles are downloaded from Amazon Web Services when you press **Fetch terrain**, which
+  tells it roughly which area you are looking at, and kept in the cache folder
+  (`~/.cache/wireant/terrarium` on Linux) so the same area needs no download next time.
+- Patterns take longer to calculate with fetched terrain (about a second for a dipole with 36
+  profiles), as every profile has dozens of slopes.
+
 How it works:
 
 - Low rays reflect from the ground hundreds of metres to kilometres away, so the terrain there

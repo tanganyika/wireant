@@ -27,6 +27,7 @@ mod report;
 mod settings;
 mod theme;
 mod num;
+mod dem;
 
 use std::path::PathBuf;
 

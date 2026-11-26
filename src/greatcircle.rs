@@ -150,7 +150,13 @@ impl Default for GreatCircleState {
 }
 
 impl GreatCircleState {
-    fn set_x_bearing(&mut self, b: f64) {
+    pub fn x_bearing(&self) -> f64 {
+        self.x_bearing
+    }
+    pub fn locator(&self) -> &str {
+        &self.locator
+    }
+    pub fn set_x_bearing(&mut self, b: f64) {
         self.x_bearing = (b.rem_euclid(360.0) * 10.0).round() / 10.0 % 360.0;
         let b = self.x_bearing;
         crate::settings::set(|s| s.x_bearing = b);

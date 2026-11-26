@@ -105,8 +105,11 @@ their code or files. MMANA-GAL basic is freeware for private use from <http://ww
 - **Terrain (wiremom engine):** the ground's height along one or more bearings
   around the site, as HFTA: each slope reflects on its own, ridges cut low rays
   as knife edges, and the patterns show a hilltop's lower takeoff angle or a
-  valley's lost low angles. Profiles are typed in or imported from text files
-  (metres or feet), blended between bearings, and drawn in the View tab. Terrain
+  valley's lost low angles. Profiles are typed in, imported from text files
+  (metres or feet), or fetched all round the site from map elevation data
+  (**From elevation data…**: give the antenna's latitude and longitude; the AWS
+  Terrain Tiles, built from SRTM and national surveys, are downloaded once and
+  cached). They are blended between bearings and drawn in the View tab. Terrain
   shapes the patterns only; the impedance sees the ground under the antenna.
 - **Tools menu:**
   - **Resonance finder:** sweeps a range on all cores (31 points by default),
@@ -201,6 +204,7 @@ Other clients take the same command in their configuration, e.g. Claude Desktop'
 | `calculate` | impedance, SWR, gain and direction, F/B, efficiency and power budget (radiated, wires, loads, lines, ground); optional azimuth and elevation pattern cuts |
 | `sweep` | R, X, SWR (and gain, F/B) over a frequency range |
 | `optimize` | the optimizer: wire lengths, positions or ends against SWR, X, gain and F/B weights |
+| `fetch_terrain` | fill the terrain with profiles all round from map elevation data, for a latitude and longitude (downloads, needs the network) |
 | `report` | the PDF antenna report, as Tools → Antenna report: calculates, finds resonances and suggests matches itself; saved next to the antenna's file unless given a `path` |
 
 `calculate`, `sweep`, `optimize` and `report` take an optional `engine` (`wiremom`, `mininec`, `nec2`,
@@ -321,7 +325,9 @@ These are the weaker spots, with how far they have been checked.
 - **Terrain:** wiremom only, patterns only (the impedance and efficiency see the
   ground under the antenna), two-dimensional toward each bearing, one ground
   for all of it, and not together with a second ground. Within a few degrees of
-  grazing the results are approximate. Importing a profile file isn't available
+  grazing the results are approximate. Elevation data is the surface, partly
+  including trees and buildings, on a grid about 30 m across (it smooths sharp
+  peaks: Snowdon comes out about 40 m low). Importing a profile file isn't available
   on Android yet. NEC files keep it
   in the `CM wireant settings` line, but the deck itself describes level ground.
 - **Files:** transmission lines in EZNEC files are skipped on import. `.maa` files
@@ -435,6 +441,7 @@ because Android can't run them. To build the APK yourself, see [android/README.m
 | `src/optimize.rs` | optimizer |
 | `src/mcp.rs` | MCP server (`--mcp`) |
 | `src/settings.rs` | settings file (Preferences) |
+| `src/dem.rs` | terrain profiles from elevation data (tile download, cache, sampling) |
 | `docs/help/`, `src/help.rs` | help pages (Markdown, built into the program) and the Help window |
 | `src/app.rs`, `src/plots.rs` | user interface and plots |
 | `MECHANICS.md`, `mechanics.json` | where each formula and value came from |

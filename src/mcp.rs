@@ -185,6 +185,44 @@ impl Server {
                 delete_wire(&mut self.ant, i);
                 self.summary()
             }
+            "fetch_terrain" => {
+                let site = match (a.get("latitude").and_then(Value::as_f64), a.get("longitude").and_then(Value::as_f64), a.get("site").and_then(Value::as_str)) {
+                    (Some(lat), Some(lon), _) => (lat, lon),
+                    (_, _, Some(t)) => crate::dem::parse_site(t).ok_or_else(|| CallError::Failed(format!("Can't read the site '{t}': give \"lat, lon\" in degrees or a Maidenhead locator of 6 to 10 characters.")))?,
+                    _ => return fail("Give latitude and longitude (or 'site').".into()),
+                };
+                let req = crate::dem::Request {
+                    site,
+                    x_bearing: a.get("x_bearing_deg").and_then(Value::as_f64).unwrap_or_else(|| crate::settings::get().x_bearing),
+                    bearings: a.get("bearings").and_then(Value::as_u64).unwrap_or(36).clamp(1, 360) as usize,
+                    radius_m: a.get("radius_km").and_then(Value::as_f64).unwrap_or(5.0).clamp(0.1, 30.0) * 1000.0,
+                    step_m: 30.0,
+                };
+                let f = crate::dem::profiles(&req).map_err(CallError::Failed)?;
+                let horizons: Vec<Value> = f
+                    .profiles
+                    .iter()
+                    .map(|p| {
+                        let h = p.points.iter().filter(|q| q[0] > 0.0).map(|q| q[1].atan2(q[0]).to_degrees()).fold(f64::NEG_INFINITY, f64::max);
+                        json!({ "azimuth_deg": p.bearing_deg, "horizon_deg": (h * 100.0).round() / 100.0, "points": p.points.len() })
+                    })
+                    .collect();
+                let t = &mut self.ant.ground.terrain;
+                t.enabled = true;
+                t.profiles = f.profiles;
+                let mut v = self.summary();
+                v["terrain"] = json!({
+                    "site": [site.0, site.1],
+                    "x_bearing_deg": req.x_bearing,
+                    "ground_above_sea_level_m": (f.site_height * 10.0).round() / 10.0,
+                    "profiles": horizons,
+                    "tiles": f.tiles,
+                    "downloaded": f.downloaded,
+                    "note": "Heights are relative to the ground at the site and include the earth's curvature (4/3 radius). The terrain shapes the patterns only, with the wiremom engine; the ground under the antenna must be perfect or real.",
+                    "attribution": crate::dem::ATTRIBUTION,
+                });
+                v
+            }
             "stack_array" => {
                 let n_stack = a.get("n_stack").and_then(Value::as_u64).unwrap_or(1).clamp(1, 8) as usize;
                 let n_bay = a.get("n_bay").and_then(Value::as_u64).unwrap_or(1).clamp(1, 8) as usize;
@@ -829,6 +867,19 @@ fn tools() -> Value {
                 "pattern_step_deg": { "type": "integer", "minimum": 1, "maximum": 90, "description": "Angle step of the cuts (default 5)." },
             } },
             "annotations": ro,
+        },
+        {
+            "name": "fetch_terrain",
+            "description": "Fills the current antenna's terrain (Ground ▸ Terrain) with profiles all round from map elevation data (AWS Terrain Tiles: SRTM, USGS 3DEP and others, about 30 m grid), downloaded for the antenna's position and cached. Replaces any terrain profiles. Profiles are in the model's azimuths (0° = +X); x_bearing_deg turns them onto the compass. Returns each profile's horizon angle as seen from the ground at the origin.",
+            "inputSchema": { "type": "object", "properties": {
+                "latitude": { "type": "number", "description": "Latitude of the model's origin, degrees (south negative)." },
+                "longitude": { "type": "number", "description": "Longitude, degrees (west negative)." },
+                "site": { "type": "string", "description": "Instead of latitude and longitude: \"lat, lon\" or a Maidenhead locator of 6 to 10 characters (6 is too coarse for the ground near the antenna)." },
+                "x_bearing_deg": { "type": "number", "description": "Compass bearing of the model's +X axis; default the program's setting (the Great circle map's)." },
+                "bearings": { "type": "integer", "minimum": 1, "maximum": 360, "description": "Profiles, equally spaced all round (default 36)." },
+                "radius_km": { "type": "number", "description": "How far each profile runs, km (default 5, at most 30)." },
+            } },
+            "annotations": { "destructiveHint": true, "openWorldHint": true },
         },
         {
             "name": "stack_array",

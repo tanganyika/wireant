@@ -182,6 +182,7 @@ pub struct App {
     exposure: crate::exposure::ExposureState,
     stack: crate::stack::StackState,
     great_circle: crate::greatcircle::GreatCircleState,
+    terrain_fetch: crate::dem::FetchState,
     edit_anchor: u8,
     edit_move_joined: bool,
     az_cursor: Option<f64>,
@@ -334,6 +335,7 @@ impl App {
             exposure: crate::exposure::ExposureState::default(),
             stack: crate::stack::StackState::default(),
             great_circle: crate::greatcircle::GreatCircleState::default(),
+            terrain_fetch: crate::dem::FetchState::default(),
             edit_anchor: 0,
             edit_move_joined: true,
             az_cursor: None,
@@ -1164,6 +1166,21 @@ impl App {
         acts.extend(crate::tools::match_window(ctx, &mut self.tools, self.calc.is_some()));
         crate::exposure::window(ctx, &mut self.exposure, &self.ant, self.calc.as_ref());
         crate::greatcircle::window(ctx, &mut self.great_circle, &self.ant, self.calc.as_ref());
+        if let Some(f) = crate::dem::window(ctx, &mut self.terrain_fetch, &mut self.great_circle) {
+            self.undo.push(self.ant.clone());
+            let t = &mut self.ant.ground.terrain;
+            t.enabled = true;
+            t.profiles = f.profiles;
+            let pts: usize = t.profiles.iter().map(|p| p.points.len()).sum();
+            self.status = format!(
+                "{} terrain profiles from elevation data ({pts} points; the ground at the antenna is {:.0} m above sea level; {} tile{}, {} downloaded). Undo brings back the old terrain.",
+                t.profiles.len(),
+                f.site_height,
+                f.tiles,
+                if f.tiles == 1 { "" } else { "s" },
+                f.downloaded
+            );
+        }
         if let Some(a) = crate::stack::window(ctx, &mut self.stack, &self.ant) {
             if !self.busy() {
                 self.undo.push(self.ant.clone());
@@ -1667,6 +1684,9 @@ impl App {
             if self.ant.ground.kind != GroundKind::Free && self.ant.ground.terrain.enabled {
                 let mut note = None;
                 card!(ui, "card_terrain", "Terrain (patterns only)", |ui| {
+                    if ui.button("🗺 From elevation data…").on_hover_text("Profiles all round from map elevation data (SRTM and others), downloaded for the antenna's latitude and longitude").clicked() {
+                        self.terrain_fetch.open = true;
+                    }
                     if ui.button("➕ Profile").on_hover_text("Another bearing: the heights are blended between bearings").clicked() {
                         let t = &mut self.ant.ground.terrain;
                         let b = t.profiles.last().map_or(0.0, |p| (p.bearing_deg + 90.0).rem_euclid(360.0));
@@ -2842,26 +2862,34 @@ fn terrain_editor(ui: &mut egui::Ui, t: &mut TerrainSpec) -> Option<String> {
                     del_profile = Some(i);
                 }
             });
-            let mut del = None;
-            egui::Grid::new(("terrain_pts", i)).striped(true).show(ui, |ui| {
-                ui.label(RichText::new("Distance (m)").strong());
-                ui.label(RichText::new("Height (m)").strong());
-                ui.end_row();
-                for (j, q) in p.points.iter_mut().enumerate() {
-                    ui.add(crate::num::Num::new(&mut q[0]).speed(10.0).range(0.0..=1.0e6));
-                    ui.add(crate::num::Num::new(&mut q[1]).speed(1.0).range(-10000.0..=10000.0));
-                    if ui.small_button("🗑").clicked() {
-                        del = Some(j);
-                    }
+            let (n_pts, far) = (p.points.len(), p.points.last().map_or(0.0, |q| q[0]));
+            let mut points = |ui: &mut egui::Ui| {
+                let mut del = None;
+                egui::Grid::new(("terrain_pts", i)).striped(true).show(ui, |ui| {
+                    ui.label(RichText::new("Distance (m)").strong());
+                    ui.label(RichText::new("Height (m)").strong());
                     ui.end_row();
+                    for (j, q) in p.points.iter_mut().enumerate() {
+                        ui.add(crate::num::Num::new(&mut q[0]).speed(10.0).range(0.0..=1.0e6));
+                        ui.add(crate::num::Num::new(&mut q[1]).speed(1.0).range(-10000.0..=10000.0));
+                        if ui.small_button("🗑").clicked() {
+                            del = Some(j);
+                        }
+                        ui.end_row();
+                    }
+                });
+                if let Some(j) = del {
+                    p.points.remove(j);
                 }
-            });
-            if let Some(j) = del {
-                p.points.remove(j);
-            }
-            if ui.button("➕ Point").clicked() {
-                let last = p.points.iter().copied().fold([0.0, 0.0], |a, q| if q[0] >= a[0] { q } else { a });
-                p.points.push([last[0] + 100.0, last[1]]);
+                if ui.button("➕ Point").clicked() {
+                    let last = p.points.iter().copied().fold([0.0, 0.0], |a, q| if q[0] >= a[0] { q } else { a });
+                    p.points.push([last[0] + 100.0, last[1]]);
+                }
+            };
+            if n_pts > 12 {
+                egui::CollapsingHeader::new(format!("{n_pts} points out to {:.1} km", far / 1000.0)).id_salt(("terrain_pts_fold", i)).show(ui, |ui| points(ui));
+            } else {
+                points(ui);
             }
         });
     }

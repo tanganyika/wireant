@@ -29,6 +29,7 @@
 #[path = "../../src/settings.rs"] mod settings;
 #[path = "../../src/theme.rs"] mod theme;
 #[path = "../../src/num.rs"] mod num;
+#[path = "../../src/dem.rs"] mod dem;
 mod files;
 
 use eframe::egui;
