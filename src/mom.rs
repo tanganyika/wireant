@@ -1030,12 +1030,18 @@ pub fn empty_mesh() -> Mesh {
     Mesh { segs: vec![], bases: vec![], wire_gaps: vec![], wire_segs: vec![], warnings: vec![], image: false }
 }
 
-/// Only wiremom models a sloping ground.
+/// Only wiremom models a sloping ground or terrain.
 pub const SLOPE_ENGINE_NOTE: &str = "Sloping ground needs the wiremom engine: MININEC and NEC-2 model level ground only. Choose wiremom, or set the slope to 0.";
+pub const TERRAIN_ENGINE_NOTE: &str = "Terrain needs the wiremom engine: MININEC and NEC-2 model level ground only. Choose wiremom, or turn the terrain off.";
 
 fn check_slope(ant: &Antenna) -> Result<(), String> {
-    if ant.ground.slope().is_some() && ant.engine != Engine::Wiremom {
-        return Err(SLOPE_ENGINE_NOTE.into());
+    if ant.engine != Engine::Wiremom && ant.ground.kind != GroundKind::Free {
+        if ant.ground.slope().is_some() {
+            return Err(SLOPE_ENGINE_NOTE.into());
+        }
+        if ant.ground.terrain.active() {
+            return Err(TERRAIN_ENGINE_NOTE.into());
+        }
     }
     Ok(())
 }

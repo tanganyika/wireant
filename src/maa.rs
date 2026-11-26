@@ -99,6 +99,8 @@ pub fn parse(text: &str) -> Result<Antenna, String> {
                 "g/h/m/r/azel/x".into()
             } else if raw.starts_with("slope") {
                 "slope".into()
+            } else if raw.starts_with("terrain") {
+                "terrain".into()
             } else if raw.starts_with("second ground") {
                 "second ground".into()
             } else if raw.starts_with("ground") {
@@ -208,6 +210,21 @@ pub fn parse(text: &str) -> Result<Antenna, String> {
                     ant.loads[li - 1].kind = LoadKind::Choke(c);
                 }
             }
+            "terrain" => {
+                // this program's extension: a count, then one profile per line
+                // (bearing, then distance and height pairs)
+                if pending == usize::MAX {
+                    pending = f(v.first(), 0.0) as usize;
+                    continue;
+                }
+                if pending > 0 {
+                    if let Some(p) = crate::model::TerrainProfile::decode(line) {
+                        ant.ground.terrain.profiles.push(p);
+                        ant.ground.terrain.enabled = true;
+                    }
+                    pending -= 1;
+                }
+            }
             "slope" => {
                 // this program's extension: slope, downhill bearing (degrees)
                 ant.ground.slope_deg = f(v.first(), 0.0);
@@ -314,6 +331,10 @@ pub fn write(ant: &Antenna) -> String {
     }
     if ant.ground.eps_r != 13.0 || ant.ground.sigma_ms != 5.0 {
         o += &format!("*** Ground ***\n{},\t{}\n", g(ant.ground.eps_r), g(ant.ground.sigma_ms));
+    }
+    if ant.ground.terrain.active() {
+        let t = &ant.ground.terrain.profiles;
+        o += &format!("*** Terrain ***\n{}\n{}\n", t.len(), t.iter().map(|p| p.encode()).collect::<Vec<_>>().join("\n"));
     }
     if ant.ground.slope_deg != 0.0 {
         o += &format!("*** Slope ***\n{},\t{}\n", g(ant.ground.slope_deg), g(ant.ground.downhill_deg));

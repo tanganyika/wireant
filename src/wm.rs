@@ -203,8 +203,12 @@ pub fn build(ant: &Antenna, lambda: f64, freq_mhz: f64) -> Result<(Model, Vec<us
     if grounded {
         m.second_ground = ant.ground.second.to_wiremom();
         m.slope = ant.ground.slope();
+        m.terrain = ant.ground.terrain.to_wiremom();
         if m.slope.is_some() && m.second_ground.is_some() {
             return Err("A sloping ground can't yet be combined with a second ground: turn one of them off.".into());
+        }
+        if m.terrain.is_some() && m.second_ground.is_some() {
+            return Err("Terrain can't be combined with a second ground: turn one of them off.".into());
         }
     }
     m.tables = TABLES.clone();
@@ -502,6 +506,62 @@ mod tests {
         for g in [m.ground, n.ground] {
             assert_eq!((g.slope_deg, g.downhill_deg), (a.ground.slope_deg, a.ground.downhill_deg));
         }
+    }
+
+    /// Terrain shapes the patterns, not the impedance: level terrain changes nothing,
+    /// a hilltop lowers the takeoff angle, the other engines refuse it, and both file
+    /// formats keep it.
+    #[test]
+    fn terrain_around_a_dipole() {
+        let mut a = with(0, Engine::Wiremom);
+        a.wires[0].p1 = [0.0, -5.2, 10.0];
+        a.wires[0].p2 = [0.0, 5.2, 10.0];
+        a.ground.kind = GroundKind::Real;
+        a.ground.add_height = 0.0;
+        let level = mom::calculate(&a).unwrap();
+        a.ground.terrain = TerrainSpec { enabled: true, profiles: vec![TerrainProfile { bearing_deg: 0.0, points: vec![[0.0, 0.0], [700.0, 0.0]] }] };
+        let flat = mom::calculate(&a).unwrap();
+        assert!((flat.result.z - level.result.z).norm() < 1e-9 && (flat.result.ga_dbi - level.result.ga_dbi).abs() < 1e-6);
+        // turned off, it is ignored
+        a.ground.terrain.enabled = false;
+        assert!((mom::calculate(&a).unwrap().result.ga_dbi - level.result.ga_dbi).abs() < 1e-9);
+        // a hilltop: 100 m down over the first km toward +X, level the other way
+        a.ground.terrain = TerrainSpec {
+            enabled: true,
+            profiles: vec![
+                TerrainProfile { bearing_deg: 0.0, points: vec![[0.0, 0.0], [50.0, 0.0], [1000.0, -100.0]] },
+                TerrainProfile { bearing_deg: 180.0, points: vec![[0.0, 0.0]] },
+            ],
+        };
+        let top = mom::calculate(&a).unwrap();
+        println!("level el {:.1} Ga {:.2} | hilltop el {:.1} Ga {:.2}", level.result.el_max, level.result.ga_dbi, top.result.el_max, top.result.ga_dbi);
+        assert!((top.result.z - level.result.z).norm() < 1e-9);
+        // 3° toward +X (downhill), from the 3D grid (its rows are 3° apart from 0°,
+        // azimuth 0 first)
+        let low = |c: &mom::FullResult| c.patterns.grid[c.patterns.grid_els.iter().position(|e| (*e - 3.0).abs() < 1e-9).unwrap()][0];
+        assert!(10.0 * (low(&top) / low(&level)).log10() > 8.0, "3° downhill gains");
+        assert!(top.patterns.grid_els[0] >= 0.0);
+        for e in [Engine::Mininec, Engine::Nec2] {
+            let mut b = a.clone();
+            b.engine = e;
+            assert_eq!(mom::calculate(&b).err().as_deref(), Some(mom::TERRAIN_ENGINE_NOTE));
+        }
+        let m = crate::maa::parse(&crate::maa::write(&a)).unwrap();
+        let n = crate::nec_file::parse(&crate::nec_file::write(&a), "x").unwrap().ant;
+        assert_eq!(m.ground.terrain, a.ground.terrain);
+        assert_eq!(n.ground.terrain, a.ground.terrain);
+        // with a second ground it is refused
+        a.ground.second.enabled = true;
+        assert!(mom::calculate(&a).is_err());
+    }
+
+    #[test]
+    fn terrain_profile_import() {
+        let text = "# exported profile\ndist,elev\n0, 120\n250 , 130\n500;125\n\n1000\t60 extra\n";
+        let p = TerrainProfile::parse_points(text, false);
+        assert_eq!(p, vec![[0.0, 0.0], [250.0, 10.0], [500.0, 5.0], [1000.0, -60.0]]);
+        let f = TerrainProfile::parse_points("0 0\n1000 100\n", true);
+        assert!((f[1][0] - 304.8).abs() < 1e-9 && (f[1][1] - 30.48).abs() < 1e-9);
     }
 
     #[test]

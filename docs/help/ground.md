@@ -43,6 +43,40 @@ degrees through the origin, falling toward the bearing in **falling toward** (an
   far away.
 - Sloping ground needs the **wiremom** engine, and can't yet be combined with a second ground.
 
+## Terrain
+
+Tick **Terrain** to describe the hills, ridges and valleys around the antenna, as terrain-analysis
+programs such as HFTA do. The **Terrain** card on the Geometry tab holds one or more **profiles**:
+the ground's height along a bearing from the origin, as a list of points (**Distance** and
+**Height**, in metres). Heights are relative to the ground at the origin, where the antenna
+stands, and beyond the last point the ground stays level. Between two profiles' bearings the
+heights are blended; a single profile applies all round. **➕ Profile** adds another bearing,
+**➕ Point** another point. Next to each bearing the card shows the terrain's highest angle above
+the ground at the origin, a quick guide to which low angles it can block.
+
+**Import…** reads a profile from a text file with a distance and a height on each line, in metres
+or feet, as terrain-profile tools export them. Lines that don't start with two numbers (headers,
+comments) are skipped, and heights above sea level are made relative to the first point.
+
+How it works:
+
+- Low rays reflect from the ground hundreds of metres to kilometres away, so the terrain there
+  sets a site's low-angle pattern. Each straight piece of a profile reflects with its own slope.
+  A ridge in front cuts the direct ray and the reflected rays as a knife edge. A hilltop or a
+  slope falling away in front lowers the takeoff angle and raises the low-angle gain; a ridge in
+  front lowers it.
+- Toward each bearing the terrain is taken as the same across the ray (two-dimensional). Every
+  piece has the ground constants set above.
+- Terrain changes only the patterns. The impedance, currents and efficiency come from the ground
+  under the antenna, so set that to the ground the antenna stands on (level, or sloping).
+- Nothing is shown at or below the horizon.
+- At the lowest angles, a few degrees from grazing, the results are approximate. A ridge can even
+  raise the gain there a little, by breaking up the ground reflection's cancellation (as it does
+  in reality).
+- Terrain needs the **wiremom** engine and can't be combined with a second ground.
+
+The View tab draws the profiles as brown lines from the origin.
+
 ## Wires touching or in the ground
 
 - A wire end at Z = 0 connects to the ground. Over perfect ground this is exact.

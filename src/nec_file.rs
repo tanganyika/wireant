@@ -212,6 +212,9 @@ struct Extras {
     slope_deg: f64,
     #[serde(default)]
     downhill_deg: f64,
+    /// terrain for the patterns (no NEC card for it)
+    #[serde(default)]
+    terrain: crate::model::TerrainSpec,
 }
 
 const EXTRAS: &str = "wireant settings ";
@@ -719,6 +722,7 @@ pub fn parse(text: &str, file_name: &str) -> Result<Imported, String> {
         ant.open_ends = x.open_ends;
         ant.ground.slope_deg = x.slope_deg;
         ant.ground.downhill_deg = x.downhill_deg;
+        ant.ground.terrain = x.terrain;
         ant.seg = x.seg;
         if x.wire_seg.len() == ant.wires.len() {
             for (w, s) in ant.wires.iter_mut().zip(&x.wire_seg) {
@@ -792,6 +796,7 @@ pub fn write(ant: &Antenna) -> String {
         load_pos: ant.loads.iter().map(|l| l.pos).collect(),
         slope_deg: ant.ground.slope_deg,
         downhill_deg: ant.ground.downhill_deg,
+        terrain: ant.ground.terrain.clone(),
     };
     cm(&mut o, &format!("{EXTRAS}{}", serde_json::to_string(&extras).unwrap_or_default()));
     for (i, w) in ant.wires.iter().enumerate().filter(|(_, w)| w.insulated()) {

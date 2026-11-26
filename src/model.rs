@@ -323,6 +323,93 @@ pub struct Ground {
     pub slope_deg: f64,
     /// Azimuth the slope falls toward, degrees from +X toward +Y (as the patterns).
     pub downhill_deg: f64,
+    /// The terrain's height along bearings, for the patterns (wiremom only).
+    pub terrain: TerrainSpec,
+}
+
+/// Terrain around the antenna for the far field, as HFTA: the ground's height
+/// along one or more bearings, blended between them (one profile applies all
+/// round).  The currents still see the ground under the antenna.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TerrainSpec {
+    pub enabled: bool,
+    pub profiles: Vec<TerrainProfile>,
+}
+
+/// The ground's height along one bearing.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TerrainProfile {
+    /// azimuth, degrees from +X toward +Y (as the patterns)
+    pub bearing_deg: f64,
+    /// (distance from the origin along the bearing, height) in metres; heights are
+    /// relative to the ground at the origin, and the last height continues level
+    pub points: Vec<[f64; 2]>,
+}
+
+impl TerrainSpec {
+    /// In use: turned on, with at least one profile.
+    pub fn active(&self) -> bool {
+        self.enabled && !self.profiles.is_empty()
+    }
+
+    pub fn to_wiremom(&self) -> Option<wiremom::Terrain> {
+        self.active().then(|| wiremom::Terrain {
+            profiles: self.profiles.iter().map(|p| wiremom::Profile::new(p.bearing_deg.to_radians(), p.points.clone())).collect(),
+        })
+    }
+}
+
+impl TerrainProfile {
+    /// One line: bearing, then distance and height pairs (MMANA files).
+    pub fn encode(&self) -> String {
+        let mut v = vec![fmt_num(self.bearing_deg)];
+        for p in &self.points {
+            v.push(fmt_num(p[0]));
+            v.push(fmt_num(p[1]));
+        }
+        v.join(",\t")
+    }
+
+    pub fn decode(line: &str) -> Option<TerrainProfile> {
+        let v: Vec<f64> = line.split(|c: char| c == ',' || c.is_whitespace()).filter(|t| !t.is_empty()).map(|t| t.parse::<f64>()).collect::<Result<_, _>>().ok()?;
+        let (&b, rest) = v.split_first()?;
+        Some(TerrainProfile { bearing_deg: b, points: rest.chunks_exact(2).map(|c| [c[0], c[1]]).collect() })
+    }
+
+    /// Points from a text file: a distance and a height on each line (spaces, tabs,
+    /// commas or semicolons between them), in metres or, with `feet`, feet.
+    /// Lines that don't start with two numbers (headers, comments) are skipped.
+    pub fn parse_points(text: &str, feet: bool) -> Vec<[f64; 2]> {
+        let k = if feet { 0.3048 } else { 1.0 };
+        let mut pts: Vec<[f64; 2]> = text
+            .lines()
+            .filter_map(|l| {
+                let mut it = l.split(|c: char| c == ',' || c == ';' || c.is_whitespace()).filter(|t| !t.is_empty()).map(|t| t.parse::<f64>());
+                match (it.next(), it.next()) {
+                    (Some(Ok(d)), Some(Ok(h))) if d.is_finite() && h.is_finite() && d >= 0.0 => Some([d * k, h * k]),
+                    _ => None,
+                }
+            })
+            .collect();
+        pts.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
+        // heights relative to the ground at the origin (a file may give heights
+        // above sea level)
+        if let Some(&[d0, h0]) = pts.first() {
+            if d0 == 0.0 && h0 != 0.0 {
+                for p in &mut pts {
+                    p[1] -= h0;
+                }
+            }
+        }
+        pts
+    }
+}
+
+fn fmt_num(x: f64) -> String {
+    let s = format!("{x}");
+    if s.contains('.') || s.contains('e') { s } else { format!("{s}.0") }
 }
 
 impl Ground {
@@ -354,6 +441,8 @@ impl Ground {
     pub fn lowest_elevation(&self) -> f64 {
         match self.kind {
             GroundKind::Free => -90.0,
+            // terrain: nothing below the horizon
+            _ if self.terrain.active() => 0.0,
             _ => -self.slope().map_or(0.0, |_| self.slope_deg.abs()),
         }
     }
@@ -361,7 +450,7 @@ impl Ground {
     /// The slope's fall (degrees, positive downhill) in the vertical plane toward
     /// azimuth `az_deg`: the ground lies at elevation -tilt in front and +tilt behind.
     pub fn tilt_toward(&self, az_deg: f64) -> f64 {
-        if self.slope().is_none() {
+        if self.slope().is_none() || self.terrain.active() {
             return 0.0;
         }
         (self.slope_deg.to_radians().tan() * (az_deg - self.downhill_deg).to_radians().cos()).atan().to_degrees()
@@ -850,7 +939,7 @@ impl Antenna {
         a.lines.clear();
         a.plates.clear();
         a.comment.clear();
-        a.ground = Ground { kind: GroundKind::Free, eps_r: 13.0, sigma_ms: 5.0, add_height: 0.0, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0 };
+        a.ground = Ground { kind: GroundKind::Free, eps_r: 13.0, sigma_ms: 5.0, add_height: 0.0, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0, terrain: TerrainSpec::default() };
         a.material = Material::CuWire;
         a
     }
@@ -863,7 +952,7 @@ impl Antenna {
     }
 
     fn example_wires(i: usize) -> Antenna {
-        let real = |h: f64| Ground { kind: GroundKind::Real, eps_r: 13.0, sigma_ms: 5.0, add_height: h, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0 };
+        let real = |h: f64| Ground { kind: GroundKind::Real, eps_r: 13.0, sigma_ms: 5.0, add_height: h, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0, terrain: TerrainSpec::default() };
         let base = |name: &str, f: f64| Antenna {
             name: name.to_string(),
             freq_mhz: f,
@@ -872,7 +961,7 @@ impl Antenna {
             loads: vec![],
             lines: vec![],
             plates: vec![],
-            ground: Ground { kind: GroundKind::Free, eps_r: 13.0, sigma_ms: 5.0, add_height: 0.0, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0 },
+            ground: Ground { kind: GroundKind::Free, eps_r: 13.0, sigma_ms: 5.0, add_height: 0.0, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0, terrain: TerrainSpec::default() },
             material: Material::CuWire,
             z0: 50.0,
             seg: Segmentation::default(),

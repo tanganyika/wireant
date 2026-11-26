@@ -638,6 +638,26 @@ pub fn view3d(ui: &mut egui::Ui, size: Vec2, ant: &Antenna, calc: Option<&FullRe
             painter.line_segment([on(ctr[0] - g, ctr[1] + t), on(ctr[0] + g, ctr[1] + t)], col);
         }
     }
+    // terrain profiles (brown lines out from the origin along their bearings),
+    // labelled where they leave the ground grid
+    if ant.ground.kind != GroundKind::Free && ant.ground.terrain.active() {
+        let brown = Color32::from_rgb(150, 100, 50);
+        let span = ((hi[0] - lo[0]).max(hi[1] - lo[1]) * 0.75).max(ext * 0.25);
+        for pr in &ant.ground.terrain.profiles {
+            let b = pr.bearing_deg.to_radians();
+            let mut pts = pr.points.clone();
+            pts.sort_by(|a, c| a[0].partial_cmp(&c[0]).unwrap());
+            if pts.first().is_none_or(|q| q[0] > 0.0) {
+                pts.insert(0, [0.0, 0.0]);
+            }
+            let at = |q: [f64; 2]| proj([q[0] * b.cos(), q[0] * b.sin(), q[1]]);
+            painter.add(egui::Shape::line(pts.iter().map(|&q| at(q)).collect(), Stroke::new(1.6, brown)));
+            // where it passes the grid's edge (or its end, if nearer)
+            let d = pts.last().unwrap()[0].min(span * 1.1);
+            let hd = wiremom::Profile::new(0.0, pts.clone()).height(d);
+            painter.text(at([d, hd]), Align2::LEFT_BOTTOM, format!("terrain {:.0}°", pr.bearing_deg), FontId::proportional(11.0), brown);
+        }
+    }
     // second ground's boundary (blue), labelled on its side
     let sm = &ant.ground.second;
     if ant.ground.kind != GroundKind::Free && sm.enabled {

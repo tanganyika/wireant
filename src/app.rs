@@ -237,6 +237,9 @@ pub(crate) fn not_saved(ant: &Antenna, is_ez: bool, is_nec: bool) -> Vec<String>
     if is_ez && ant.ground.slope().is_some() {
         v.push("the sloping ground".into());
     }
+    if is_ez && ant.ground.terrain.active() && ant.ground.kind != GroundKind::Free {
+        v.push("the terrain".into());
+    }
     // MMANA has voltage sources only (EZNEC files keep current sources)
     let cur = ant.sources.iter().filter(|s| s.current).count();
     if !is_ez && cur > 0 && ant.sources.len() > 1 {
@@ -1661,6 +1664,21 @@ impl App {
                 });
             });
             ui.add_space(8.0);
+            if self.ant.ground.kind != GroundKind::Free && self.ant.ground.terrain.enabled {
+                let mut note = None;
+                card!(ui, "card_terrain", "Terrain (patterns only)", |ui| {
+                    if ui.button("➕ Profile").on_hover_text("Another bearing: the heights are blended between bearings").clicked() {
+                        let t = &mut self.ant.ground.terrain;
+                        let b = t.profiles.last().map_or(0.0, |p| (p.bearing_deg + 90.0).rem_euclid(360.0));
+                        t.profiles.push(TerrainProfile { bearing_deg: b, points: vec![[0.0, 0.0], [1000.0, 0.0]] });
+                    }
+                }, |ui| {
+                    note = terrain_editor(ui, &mut self.ant.ground.terrain);
+                });
+                if let Some(n) = note {
+                    self.status = n;
+                }
+            }
             card!(ui, "card_comment", "Comment", |_ui| {}, |ui| {
                 ui.add(egui::TextEdit::multiline(&mut self.ant.comment).desired_rows(3).desired_width(f32::INFINITY));
             });
@@ -2770,6 +2788,89 @@ fn ground_preset(ui: &mut egui::Ui, eps_r: &mut f64, sigma_ms: &mut f64) {
     });
 }
 
+/// The Terrain card's body: one block per bearing with its points.  Returns a
+/// message for the status line after an import.
+fn terrain_editor(ui: &mut egui::Ui, t: &mut TerrainSpec) -> Option<String> {
+    let mut note = None;
+    ui.label(
+        RichText::new(
+            "The ground's height along bearings from the origin, in metres, relative to the ground there; beyond the last point it \
+             stays level. Heights are blended between bearings, and one profile applies all round. It shapes the patterns (reflections \
+             off each slope, ridges cutting low rays), not the impedance. wiremom engine only.",
+        )
+        .weak(),
+    );
+    let mut del_profile = None;
+    for (i, p) in t.profiles.iter_mut().enumerate() {
+        ui.add_space(4.0);
+        ui.group(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("Bearing").strong());
+                ui.add(crate::num::Num::new(&mut p.bearing_deg).speed(1.0).range(0.0..=360.0).suffix("°"))
+                    .on_hover_text("Azimuth of this profile, as in the patterns: 0° = +X, 90° = +Y");
+                // how high the terrain stands above the origin's ground, seen from there
+                let horizon = p.points.iter().filter(|q| q[0] > 0.0).map(|q| q[1].atan2(q[0]).to_degrees()).fold(f64::NEG_INFINITY, f64::max);
+                if horizon.is_finite() {
+                    ui.label(RichText::new(format!("horizon {horizon:+.1}° from the ground at the origin")).weak());
+                }
+                ui.menu_button("Import…", |ui| {
+                    for (label, feet) in [("Distances and heights in metres…", false), ("Distances and heights in feet…", true)] {
+                        if ui.button(label).clicked() {
+                            ui.close();
+                            let pick = rfd::FileDialog::new().set_title("Import terrain profile").add_filter("Text files", &["txt", "csv", "pro", "dat", "TXT", "CSV", "PRO", "DAT"]).pick_file();
+                            if let Some(path) = pick {
+                                match std::fs::read_to_string(&path) {
+                                    Ok(text) => {
+                                        let pts = TerrainProfile::parse_points(&text, feet);
+                                        note = Some(if pts.len() >= 2 {
+                                            let n = pts.len();
+                                            p.points = pts;
+                                            format!("Imported {n} terrain points for bearing {:.0}°", p.bearing_deg)
+                                        } else {
+                                            format!("No terrain points found in {}: each line needs a distance and a height", path.display())
+                                        });
+                                    }
+                                    Err(e) => note = Some(format!("Could not read {}: {e}", path.display())),
+                                }
+                            }
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("A text file with a distance and a height on each line (as terrain-profile tools export). Heights above sea level are made relative to the first point.");
+                if ui.button("🗑").on_hover_text("Remove this profile").clicked() {
+                    del_profile = Some(i);
+                }
+            });
+            let mut del = None;
+            egui::Grid::new(("terrain_pts", i)).striped(true).show(ui, |ui| {
+                ui.label(RichText::new("Distance (m)").strong());
+                ui.label(RichText::new("Height (m)").strong());
+                ui.end_row();
+                for (j, q) in p.points.iter_mut().enumerate() {
+                    ui.add(crate::num::Num::new(&mut q[0]).speed(10.0).range(0.0..=1.0e6));
+                    ui.add(crate::num::Num::new(&mut q[1]).speed(1.0).range(-10000.0..=10000.0));
+                    if ui.small_button("🗑").clicked() {
+                        del = Some(j);
+                    }
+                    ui.end_row();
+                }
+            });
+            if let Some(j) = del {
+                p.points.remove(j);
+            }
+            if ui.button("➕ Point").clicked() {
+                let last = p.points.iter().copied().fold([0.0, 0.0], |a, q| if q[0] >= a[0] { q } else { a });
+                p.points.push([last[0] + 100.0, last[1]]);
+            }
+        });
+    }
+    if let Some(i) = del_profile {
+        t.profiles.remove(i);
+    }
+    note
+}
+
 fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
     egui::Grid::new(ui.next_auto_id()).spacing([8.0, 6.0]).show(ui, |ui| {
         ui.label("Ground");
@@ -2806,6 +2907,27 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
                 ui.label("falling toward");
                 ui.add(crate::num::Num::new(&mut ant.ground.downhill_deg).speed(1.0).range(0.0..=360.0).suffix("°"))
                     .on_hover_text("Azimuth (as in the patterns: 0° = +X, 90° = +Y) of the downhill direction.");
+            });
+            ui.end_row();
+            ui.label("Terrain");
+            ui.horizontal_wrapped(|ui| {
+                let t = &mut ant.ground.terrain;
+                if ui
+                    .checkbox(&mut t.enabled, "hills, ridges and valleys around")
+                    .on_hover_text(
+                        "The ground's height along bearings from the antenna (as HFTA): it shapes the patterns, especially at low \
+                         angles, but not the impedance. Edit it in the Terrain card on the Geometry tab. wiremom engine only.",
+                    )
+                    .changed()
+                    && t.enabled
+                    && t.profiles.is_empty()
+                {
+                    t.profiles.push(TerrainProfile { bearing_deg: 0.0, points: vec![[0.0, 0.0], [1000.0, 0.0]] });
+                }
+                if t.enabled {
+                    let n = t.profiles.len();
+                    ui.label(RichText::new(format!("{n} profile{}", if n == 1 { "" } else { "s" })).weak());
+                }
             });
             ui.end_row();
             let sm = &mut ant.ground.second;
