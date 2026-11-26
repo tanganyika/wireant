@@ -318,6 +318,54 @@ pub struct Ground {
     pub add_height: f64,
     /// A second ground medium (sea, marsh) away from the antenna, far field only.
     pub second: SecondMedium,
+    /// Sloping ground: the surface is tilted this many degrees from level through
+    /// the origin (0 = level).  wiremom engine only.
+    pub slope_deg: f64,
+    /// Azimuth the slope falls toward, degrees from +X toward +Y (as the patterns).
+    pub downhill_deg: f64,
+}
+
+impl Ground {
+    /// The slope for wiremom, when the ground is tilted.
+    pub fn slope(&self) -> Option<wiremom::Slope> {
+        (self.kind != GroundKind::Free && self.slope_deg.abs() > 1e-9).then(|| wiremom::Slope::new(self.slope_deg.to_radians(), self.downhill_deg.to_radians()))
+    }
+
+    /// Height of `p` (with "add height") above the ground surface, measured square to
+    /// it; on level ground this is z + add height.
+    pub fn height(&self, p: [f64; 3]) -> f64 {
+        let q = [p[0], p[1], p[2] + self.add_height];
+        match self.slope() {
+            Some(s) => {
+                let n = s.normal();
+                n[0] * q[0] + n[1] * q[1] + n[2] * q[2]
+            }
+            None => q[2],
+        }
+    }
+
+    /// Height of the ground surface at (x, y) (0 on level ground).
+    pub fn surface_z(&self, x: f64, y: f64) -> f64 {
+        self.slope().map_or(0.0, |s| s.surface_z(x, y))
+    }
+
+    /// The lowest elevation (degrees) the pattern can reach: -90 in free space, 0
+    /// over level ground, minus the slope over sloping ground (downhill).
+    pub fn lowest_elevation(&self) -> f64 {
+        match self.kind {
+            GroundKind::Free => -90.0,
+            _ => -self.slope().map_or(0.0, |_| self.slope_deg.abs()),
+        }
+    }
+
+    /// The slope's fall (degrees, positive downhill) in the vertical plane toward
+    /// azimuth `az_deg`: the ground lies at elevation -tilt in front and +tilt behind.
+    pub fn tilt_toward(&self, az_deg: f64) -> f64 {
+        if self.slope().is_none() {
+            return 0.0;
+        }
+        (self.slope_deg.to_radians().tan() * (az_deg - self.downhill_deg).to_radians().cos()).atan().to_degrees()
+    }
 }
 
 /// A second ground medium beyond a straight boundary or outside a circle, as
@@ -802,7 +850,7 @@ impl Antenna {
         a.lines.clear();
         a.plates.clear();
         a.comment.clear();
-        a.ground = Ground { kind: GroundKind::Free, eps_r: 13.0, sigma_ms: 5.0, add_height: 0.0, second: SecondMedium::default() };
+        a.ground = Ground { kind: GroundKind::Free, eps_r: 13.0, sigma_ms: 5.0, add_height: 0.0, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0 };
         a.material = Material::CuWire;
         a
     }
@@ -815,7 +863,7 @@ impl Antenna {
     }
 
     fn example_wires(i: usize) -> Antenna {
-        let real = |h: f64| Ground { kind: GroundKind::Real, eps_r: 13.0, sigma_ms: 5.0, add_height: h, second: SecondMedium::default() };
+        let real = |h: f64| Ground { kind: GroundKind::Real, eps_r: 13.0, sigma_ms: 5.0, add_height: h, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0 };
         let base = |name: &str, f: f64| Antenna {
             name: name.to_string(),
             freq_mhz: f,
@@ -824,7 +872,7 @@ impl Antenna {
             loads: vec![],
             lines: vec![],
             plates: vec![],
-            ground: Ground { kind: GroundKind::Free, eps_r: 13.0, sigma_ms: 5.0, add_height: 0.0, second: SecondMedium::default() },
+            ground: Ground { kind: GroundKind::Free, eps_r: 13.0, sigma_ms: 5.0, add_height: 0.0, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0 },
             material: Material::CuWire,
             z0: 50.0,
             seg: Segmentation::default(),

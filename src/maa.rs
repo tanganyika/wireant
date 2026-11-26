@@ -97,6 +97,8 @@ pub fn parse(text: &str) -> Result<Antenna, String> {
                 "segmentation".into()
             } else if raw.starts_with("g/h") {
                 "g/h/m/r/azel/x".into()
+            } else if raw.starts_with("slope") {
+                "slope".into()
             } else if raw.starts_with("second ground") {
                 "second ground".into()
             } else if raw.starts_with("ground") {
@@ -206,6 +208,11 @@ pub fn parse(text: &str) -> Result<Antenna, String> {
                     ant.loads[li - 1].kind = LoadKind::Choke(c);
                 }
             }
+            "slope" => {
+                // this program's extension: slope, downhill bearing (degrees)
+                ant.ground.slope_deg = f(v.first(), 0.0);
+                ant.ground.downhill_deg = f(v.get(1), 0.0);
+            }
             "second ground" => {
                 // this program's extension: εr, σ (mS/m), line|circle, distance,
                 // bearing, drop, fresnel|specular
@@ -307,6 +314,9 @@ pub fn write(ant: &Antenna) -> String {
     }
     if ant.ground.eps_r != 13.0 || ant.ground.sigma_ms != 5.0 {
         o += &format!("*** Ground ***\n{},\t{}\n", g(ant.ground.eps_r), g(ant.ground.sigma_ms));
+    }
+    if ant.ground.slope_deg != 0.0 {
+        o += &format!("*** Slope ***\n{},\t{}\n", g(ant.ground.slope_deg), g(ant.ground.downhill_deg));
     }
     if ant.ground.second.enabled {
         let e = ant.ground.second.encode();

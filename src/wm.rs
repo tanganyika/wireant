@@ -31,22 +31,22 @@ fn usable(w: &Wire) -> bool {
 
 /// Real ground with some wire end at ground level (after "add height").
 pub fn touches_ground(ant: &Antenna) -> bool {
-    let dz = ant.ground.add_height;
-    ant.ground.kind == GroundKind::Real && ant.wires.iter().any(|w| usable(w) && ((w.p1[2] + dz).abs() < 1e-6 || (w.p2[2] + dz).abs() < 1e-6))
+    let h = |p| ant.ground.height(p);
+    ant.ground.kind == GroundKind::Real && ant.wires.iter().any(|w| usable(w) && (h(w.p1).abs() < 1e-6 || h(w.p2).abs() < 1e-6))
 }
 
 /// Real ground with some wire lying in the ground surface (both ends at height 0,
 /// after "add height"), such as radials laid on the soil.
 pub fn lies_on_ground(ant: &Antenna) -> bool {
-    let dz = ant.ground.add_height;
-    ant.ground.kind == GroundKind::Real && ant.wires.iter().any(|w| usable(w) && (w.p1[2] + dz).abs() < 1e-6 && (w.p2[2] + dz).abs() < 1e-6)
+    let h = |p| ant.ground.height(p);
+    ant.ground.kind == GroundKind::Real && ant.wires.iter().any(|w| usable(w) && h(w.p1).abs() < 1e-6 && h(w.p2).abs() < 1e-6)
 }
 
 /// How far under the surface wires lying on the ground are put: 1 cm, or 5 radii
 /// for thick wires (the thin-wire kernel needs the wire clear of its image).
 pub fn surface_depth(ant: &Antenna) -> f64 {
-    let dz = ant.ground.add_height;
-    let r = ant.wires.iter().filter(|w| usable(w) && ((w.p1[2] + dz).abs() < 1e-6 || (w.p2[2] + dz).abs() < 1e-6)).map(|w| w.r.abs()).fold(0.0, f64::max);
+    let h = |p| ant.ground.height(p);
+    let r = ant.wires.iter().filter(|w| usable(w) && (h(w.p1).abs() < 1e-6 || h(w.p2).abs() < 1e-6)).map(|w| w.r.abs()).fold(0.0, f64::max);
     (5.0 * r).max(0.01)
 }
 
@@ -62,13 +62,12 @@ pub fn near_surface(ant: &Antenna) -> Vec<(usize, f64)> {
     if ant.ground.kind != GroundKind::Real {
         return vec![];
     }
-    let dz = ant.ground.add_height;
     ant.wires
         .iter()
         .enumerate()
         .filter(|(_, w)| usable(w))
         .filter_map(|(i, w)| {
-            let (z1, z2) = (w.p1[2] + dz, w.p2[2] + dz);
+            let (z1, z2) = (ant.ground.height(w.p1), ant.ground.height(w.p2));
             // touching (an end at 0) or crossing: the mesher puts a node on the surface
             if z1.abs() < 1e-6 || z2.abs() < 1e-6 || z1 * z2 < 0.0 {
                 return None;
@@ -101,8 +100,8 @@ pub fn near_surface_note(near: &[(usize, f64)], ant: &Antenna) -> String {
 
 /// Real ground with wires (partly) below the surface: modelled in full by wiremom.
 pub fn has_buried(ant: &Antenna) -> bool {
-    let dz = ant.ground.add_height;
-    ant.ground.kind == GroundKind::Real && ant.wires.iter().any(|w| usable(w) && (w.p1[2] + dz < -1e-6 || w.p2[2] + dz < -1e-6))
+    let h = |p| ant.ground.height(p);
+    ant.ground.kind == GroundKind::Real && ant.wires.iter().any(|w| usable(w) && (h(w.p1) < -1e-6 || h(w.p2) < -1e-6))
 }
 
 /// The perfect-ground stand-in for wires that stop on real ground (see
@@ -133,12 +132,20 @@ pub fn build(ant: &Antenna, lambda: f64, freq_mhz: f64) -> Result<(Model, Vec<us
     let sink = if lies_on_ground(ant) { surface_depth(ant) } else { 0.0 };
     let at_surface = |v: f64| v.abs() < 1e-6;
     let mut stubs: Vec<([f64; 3], f64)> = vec![];
+    // over sloping ground the wires are laid out in the ground frame (the surface at
+    // z = 0) and turned back to world coordinates at the end, for wiremom's slope
+    let frame = if grounded { ant.ground.slope().map(|s| s.frame()) } else { None };
+    let local = |p: [f64; 3]| {
+        let q = [p[0], p[1], p[2] + dz];
+        frame.map_or(q, |f| f.to_ground(q))
+    };
     for (wi, w) in ant.wires.iter().enumerate() {
-        let (z1, z2) = (w.p1[2] + dz, w.p2[2] + dz);
+        let (q1, q2) = (local(w.p1), local(w.p2));
+        let (z1, z2) = (q1[2], q2[2]);
         let lying = sink > 0.0 && at_surface(z1) && at_surface(z2);
         let z = |v: f64| if lying { -sink } else { v };
-        let p1 = [w.p1[0], w.p1[1], z(z1)];
-        let p2 = [w.p2[0], w.p2[1], z(z2)];
+        let p1 = [q1[0], q1[1], z(z1)];
+        let p2 = [q2[0], q2[1], z(z2)];
         if sink > 0.0 && !lying && usable(w) {
             for p in [p1, p2] {
                 let tol = 1e-6 + 1e-4 * w.length();
@@ -176,6 +183,12 @@ pub fn build(ant: &Antenna, lambda: f64, freq_mhz: f64) -> Result<(Model, Vec<us
     for (p, r) in stubs {
         wires.push(wiremom::Wire { conductor, ..wiremom::Wire::new([p[0], p[1], 0.0], [p[0], p[1], -sink], r, 1) });
     }
+    if let Some(f) = frame {
+        for w in &mut wires {
+            w.start = f.to_world(w.start);
+            w.end = f.to_world(w.end);
+        }
+    }
     let surfaces: Vec<Surface> = ant.plates.iter().map(|p| plate_surface(p, &wires, dz, lambda)).collect();
     let ground = match ant.ground.kind {
         GroundKind::Free => WGround::Free,
@@ -189,6 +202,10 @@ pub fn build(ant: &Antenna, lambda: f64, freq_mhz: f64) -> Result<(Model, Vec<us
     m.surfaces = surfaces;
     if grounded {
         m.second_ground = ant.ground.second.to_wiremom();
+        m.slope = ant.ground.slope();
+        if m.slope.is_some() && m.second_ground.is_some() {
+            return Err("A sloping ground can't yet be combined with a second ground: turn one of them off.".into());
+        }
     }
     m.tables = TABLES.clone();
     let mesh = m.mesh().map_err(String::from)?;
@@ -369,8 +386,14 @@ fn near_filaments(ws: &wiremom::Solution) -> Vec<crate::nearfield::Filament> {
         }
     }
     (0..m.n_segments())
-        .map(|s| crate::nearfield::Filament { a: m.p0[s], b: m.p1[s], ia: amp[s][FALL], ib: amp[s][RISE], r: m.radius[s] })
+        .map(|s| crate::nearfield::Filament { a: world(ws, m.p0[s]), b: world(ws, m.p1[s]), ia: amp[s][FALL], ib: amp[s][RISE], r: m.radius[s] })
         .collect()
+}
+
+/// A point of wiremom's mesh in world coordinates (the mesh is in the ground frame
+/// over sloping ground).
+fn world(ws: &wiremom::Solution, p: [f64; 3]) -> [f64; 3] {
+    ws.frame.map_or(p, |f| f.to_world(p))
 }
 
 fn view_mesh(ant: &Antenna, ws: &wiremom::Solution, app_wire: &[usize]) -> mom::Mesh {
@@ -382,7 +405,7 @@ fn view_mesh(ant: &Antenna, ws: &wiremom::Solution, app_wire: &[usize]) -> mom::
         let Some(&aw) = app_wire.get(wi) else { continue };
         wire_segs[aw] = (segs.len(), list.len());
         for &s in list {
-            segs.push(mom::Seg { a: m.p0[s], b: m.p1[s], r: m.radius[s], wire: aw });
+            segs.push(mom::Seg { a: world(ws, m.p0[s]), b: world(ws, m.p1[s]), r: m.radius[s], wire: aw });
         }
     }
     mom::Mesh { segs, bases: vec![], wire_gaps: vec![], wire_segs, warnings: vec![], image: false }
@@ -395,6 +418,92 @@ mod tests {
     /// Insulation reaches wiremom for wires in the soil: on four radials lying on
     /// average ground it changes the result (a little; see wiremom's tests/insulated.rs
     /// for the physics), and the power still balances.
+    /// The antenna turned by hand into the slope's ground frame, over level ground.
+    fn turned_by_hand(a: &Antenna) -> Antenna {
+        let f = a.ground.slope().unwrap().frame();
+        let mut b = a.clone();
+        let dz = a.ground.add_height;
+        for w in &mut b.wires {
+            for p in [&mut w.p1, &mut w.p2] {
+                *p = f.to_ground([p[0], p[1], p[2] + dz]);
+            }
+        }
+        b.ground.add_height = 0.0;
+        b.ground.slope_deg = 0.0;
+        b
+    }
+
+    /// A vertical with four radials lying on sloping real ground (ends on the tilted
+    /// surface): wireant finds them on the ground, puts them in the soil square to the
+    /// surface, and gets what the same antenna turned by hand gets over level ground.
+    #[test]
+    fn radials_on_sloping_ground() {
+        let mut a = Antenna::example(3);
+        a.engine = Engine::Wiremom;
+        a.ground.kind = GroundKind::Real;
+        a.ground.slope_deg = 12.0;
+        a.ground.downhill_deg = 40.0;
+        let l = a.wires[0].length();
+        for k in 0..4 {
+            let t = k as f64 * std::f64::consts::FRAC_PI_2 + 0.3;
+            let (x, y) = (l * t.cos(), l * t.sin());
+            let mut w = Wire::new([0.0, 0.0, 0.0], [x, y, a.ground.surface_z(x, y)], 0.001);
+            w.seg = -1;
+            a.wires.push(w);
+        }
+        assert!(lies_on_ground(&a) && touches_ground(&a) && !has_buried(&a));
+        let s = mom::calculate(&a).unwrap();
+        let flat = mom::calculate(&turned_by_hand(&a)).unwrap();
+        println!("sloping {:.3} eff {:.3} | turned {:.3} eff {:.3}", s.result.z, s.result.eff, flat.result.z, flat.result.eff);
+        assert!((s.result.z - flat.result.z).norm() < 1e-6 * flat.result.z.norm());
+        assert!((s.power.ground.unwrap() - flat.power.ground.unwrap()).abs() < 0.01);
+        // the mesh shown in the 3D view is back in world coordinates
+        let seg = &s.mesh.segs[s.mesh.wire_segs[1].0];
+        // (the radial runs 1 cm into the soil, square to the sloping surface)
+        let depth = a.ground.height(seg.a);
+        assert!((depth + surface_depth(&a)).abs() < 1e-9 && seg.a[0].hypot(seg.a[1]) < 0.01, "{:?} {depth}", seg.a);
+    }
+
+    /// A dipole on a hillside: the pattern reaches below the horizon downhill and its
+    /// peak drops toward it; level ground and the other engines are unchanged.
+    #[test]
+    fn dipole_on_a_hillside() {
+        // 20 m dipole along Y, 10 m up, the slope falling toward +X (broadside)
+        let mut a = with(0, Engine::Wiremom);
+        a.wires[0].p1 = [0.0, -5.2, 10.0];
+        a.wires[0].p2 = [0.0, 5.2, 10.0];
+        a.ground.kind = GroundKind::Real;
+        a.ground.add_height = 0.0;
+        let level = mom::calculate(&a).unwrap();
+        a.ground.downhill_deg = 0.0;
+        a.ground.slope_deg = 0.0;
+        let zero = mom::calculate(&a).unwrap();
+        assert!((zero.result.z - level.result.z).norm() < 1e-9);
+        a.ground.slope_deg = 10.0;
+        let hill = mom::calculate(&a).unwrap();
+        println!("level el {:.1} Ga {:.2} | 10° slope el {:.1} Ga {:.2} eff {:.3}", level.result.el_max, level.result.ga_dbi, hill.result.el_max, hill.result.ga_dbi, hill.result.eff);
+        assert!(hill.result.el_max < level.result.el_max - 5.0);
+        assert!(hill.patterns.grid_els[0] <= -9.0 && (hill.patterns.cut_tilt - 10.0).abs() < 1e-6);
+        let cut = hill.patterns.el_cut_above_ground();
+        assert!(cut.first().unwrap().0 <= -9.9 && cut.iter().any(|(t, g)| *t < -1.0 && g.total > 0.0));
+        assert!(hill.result.eff > 0.3 && hill.result.eff < 1.0 && hill.patterns.el_beamwidth().is_some());
+        // a 10° slope square to the cut tilts nothing in it
+        let mut side = a.clone();
+        side.ground.downhill_deg += 90.0;
+        assert!(Ground::tilt_toward(&side.ground, a.ground.downhill_deg).abs() < 1e-9);
+        for e in [Engine::Mininec, Engine::Nec2] {
+            let mut b = a.clone();
+            b.engine = e;
+            assert_eq!(mom::calculate(&b).err().as_deref(), Some(mom::SLOPE_ENGINE_NOTE));
+        }
+        // the slope is kept in both file formats
+        let m = crate::maa::parse(&crate::maa::write(&a)).unwrap();
+        let n = crate::nec_file::parse(&crate::nec_file::write(&a), "x").unwrap().ant;
+        for g in [m.ground, n.ground] {
+            assert_eq!((g.slope_deg, g.downhill_deg), (a.ground.slope_deg, a.ground.downhill_deg));
+        }
+    }
+
     #[test]
     fn insulated_surface_radials() {
         let mut a = Antenna::example(3);

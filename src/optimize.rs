@@ -115,7 +115,7 @@ fn joints(a: &Antenna) -> (Vec<[usize; 2]>, Vec<usize>) {
 pub fn apply(base: &Antenna, vars: &[OptVar], d: &[f64]) -> Antenna {
     let mut a = base.clone();
     let (group, size) = joints(base);
-    let grounded = |p: [f64; 3]| base.ground.kind != GroundKind::Free && (p[2] + base.ground.add_height).abs() < JOIN_TOL;
+    let grounded = |p: [f64; 3]| base.ground.kind != GroundKind::Free && base.ground.height(p).abs() < JOIN_TOL;
     // how firmly an end is held: joined to another wire, standing on the ground
     let held = |w: usize, e: usize| {
         let p = if e == 0 { base.wires[w].p1 } else { base.wires[w].p2 };

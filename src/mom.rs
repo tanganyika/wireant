@@ -743,7 +743,9 @@ impl Radiator {
 
     /// Direction of maximum gain: (az, el, gain).
     pub fn find_max(&self) -> (f64, f64, Gain) {
-        let (el0, el1) = if self.has_ground() { (1.0, 90.0) } else { (-90.0, 90.0) };
+        // over ground from just above the lowest elevation (the horizon, or below it
+        // downhill over sloping ground)
+        let (el0, el1) = if self.has_ground() { (self.ground.lowest_elevation() + 1.0, 90.0) } else { (-90.0, 90.0) };
         let mut dirs = Vec::new();
         let mut el = el0;
         while el <= el1 + 1e-9 {
@@ -808,6 +810,9 @@ pub struct Patterns {
     pub el_cut: Vec<(f64, Gain)>,
     pub az_cut_deg: f64,
     pub free_space: bool,
+    /// Over sloping ground, the ground's fall (degrees) in the elevation cut: it lies
+    /// at elevation -cut_tilt in front and +cut_tilt behind (0 over level ground).
+    pub cut_tilt: f64,
     /// 3D pattern: total gain (linear) at `grid_els[i]` elevation, `j * grid_step` azimuth.
     pub grid: Vec<Vec<f64>>,
     pub grid_els: Vec<f64>,
@@ -826,13 +831,24 @@ impl Patterns {
     /// stops at the horizons: a lobe still within 3 dB there (a vertical over perfect
     /// ground) is measured from the horizon.
     pub fn el_beamwidth(&self) -> Option<f64> {
-        let pts: Vec<(f64, f64)> = self
-            .el_cut
-            .iter()
-            .filter(|(t, _)| if self.free_space { *t < 360.0 } else { *t <= 180.0 })
-            .map(|(t, g)| (*t, g.total))
-            .collect();
+        let pts: Vec<(f64, f64)> = if self.free_space {
+            self.el_cut.iter().filter(|(t, _)| *t < 360.0).map(|(t, g)| (*t, g.total)).collect()
+        } else {
+            self.el_cut_above_ground().iter().map(|(t, g)| (*t, g.total)).collect()
+        };
         beamwidth(&pts, self.free_space)
+    }
+
+    /// Over ground, the elevation cut above the ground surface, in order from the
+    /// front ground line to the back one: angles from the front horizon, negative
+    /// below it (downhill over sloping ground).
+    pub fn el_cut_above_ground(&self) -> Vec<(f64, Gain)> {
+        let (lo, hi) = (-self.cut_tilt, 180.0 - self.cut_tilt);
+        let mut v: Vec<(f64, Gain)> =
+            self.el_cut.iter().map(|&(t, g)| (if t > 180.0 + 1e-9 && t - 360.0 >= lo - 1e-9 { t - 360.0 } else { t }, g)).filter(|(t, _)| *t >= lo - 1e-9 && *t <= hi + 1e-9).collect();
+        v.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        v.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-9);
+        v
     }
 }
 
@@ -1012,7 +1028,18 @@ pub fn empty_mesh() -> Mesh {
     Mesh { segs: vec![], bases: vec![], wire_gaps: vec![], wire_segs: vec![], warnings: vec![], image: false }
 }
 
+/// Only wiremom models a sloping ground.
+pub const SLOPE_ENGINE_NOTE: &str = "Sloping ground needs the wiremom engine: MININEC and NEC-2 model level ground only. Choose wiremom, or set the slope to 0.";
+
+fn check_slope(ant: &Antenna) -> Result<(), String> {
+    if ant.ground.slope().is_some() && ant.engine != Engine::Wiremom {
+        return Err(SLOPE_ENGINE_NOTE.into());
+    }
+    Ok(())
+}
+
 pub fn quick(ant: &Antenna, freq_mhz: f64, seg_freq_mhz: f64, need_far: bool) -> Result<(CalcResult, Mesh, Solution, Option<Radiator>), String> {
+    check_slope(ant)?;
     let resolved = resolve_current_sources(ant, freq_mhz, seg_freq_mhz)?;
     let ant = resolved.as_ref().unwrap_or(ant);
     match ant.engine {
@@ -1082,6 +1109,7 @@ pub fn summarize(ant: &Antenna, freq_mhz: f64, t0: Instant, sol: &Solution, rad:
 
 /// Every source's impedance with the antenna as it is (all sources as voltage sources).
 fn source_impedances(ant: &Antenna, freq_mhz: f64, seg_freq_mhz: f64) -> Result<Vec<C>, String> {
+    check_slope(ant)?;
     match ant.engine {
         Engine::Nec2 | Engine::External => crate::nec::source_impedances(ant, freq_mhz, seg_freq_mhz),
         Engine::Wiremom => Ok(crate::wm::quick(ant, freq_mhz, seg_freq_mhz, false)?.1.z_in),
@@ -1200,6 +1228,7 @@ pub const MAX_RADIATED: f64 = 1.10;
 pub const AGT_LOW: f64 = 0.891;
 
 fn calculate_with(ant: &Antenna, prog: &Progress) -> Result<FullResult, String> {
+    check_slope(ant)?;
     match ant.engine {
         Engine::Nec2 | Engine::External => return crate::nec::calculate(ant, prog),
         Engine::Wiremom => return crate::wm::calculate(ant, prog),
@@ -1231,7 +1260,9 @@ pub fn patterns(ant: &Antenna, res: &mut CalcResult, rad: &Radiator, prog: &Prog
     prog.check()?;
     let t = Instant::now();
     let grid_step = 3.0;
-    let el0 = if ant.ground.kind == GroundKind::Free { -90.0 } else { 0.0 };
+    // over sloping ground the grid reaches below the horizon (to the slope, on the
+    // grid's 3° steps)
+    let el0 = (ant.ground.lowest_elevation() / grid_step).floor() * grid_step;
     let n_el = ((90.0 - el0) / grid_step) as usize + 1;
     prog.stage("Working out the pattern", n_el + 2);
     let el_cut = res.el_max;
@@ -1273,6 +1304,7 @@ pub fn patterns(ant: &Antenna, res: &mut CalcResult, rad: &Radiator, prog: &Prog
         el_cut: el_pts,
         az_cut_deg: azf,
         free_space: ant.ground.kind == GroundKind::Free,
+        cut_tilt: ant.ground.tilt_toward(azf),
         grid,
         grid_els,
         grid_step,

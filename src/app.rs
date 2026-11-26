@@ -2001,10 +2001,10 @@ impl App {
             format!("{}   {}", r.ground.label(), if r.horizontal_pol { "horizontal pol." } else { "vertical pol." }),
         ];
         let az = p.az_cut.clone();
-        let el: Vec<_> = if ground { p.el_cut.iter().filter(|(t, _)| *t <= 180.0).cloned().collect() } else { p.el_cut.clone() };
+        let el: Vec<_> = if ground { p.el_cut_above_ground() } else { p.el_cut.clone() };
         let both = |ui: &mut egui::Ui| {
             plots::polar(ui, size, "Horizontal pattern (top view)", &az, PolarKind::Azimuth, &self.show, &info_h, &mut self.az_cursor);
-            plots::polar(ui, size, "Vertical pattern (side view)", &el, PolarKind::Elevation { ground }, &self.show, &info_v, &mut self.el_cursor);
+            plots::polar(ui, size, "Vertical pattern (side view)", &el, PolarKind::Elevation { ground, tilt: p.cut_tilt as f32 }, &self.show, &info_v, &mut self.el_cursor);
         };
         if narrow(ui.ctx()) {
             ui.vertical(both);
@@ -2793,6 +2793,18 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
             ui.end_row();
         }
         if ant.ground.kind != GroundKind::Free {
+            ui.label("Slope");
+            ui.horizontal(|ui| {
+                ui.add(crate::num::Num::new(&mut ant.ground.slope_deg).speed(0.5).range(0.0..=45.0).suffix("°")).on_hover_text(
+                    "Sloping ground: the surface is tilted this much from level, through the origin. Wires keep their \
+                     coordinates (masts stay vertical) and must stay above the sloping surface. wiremom engine only. \
+                     The slope runs on for ever, so low-angle gain toward the valley is optimistic.",
+                );
+                ui.label("falling toward");
+                ui.add(crate::num::Num::new(&mut ant.ground.downhill_deg).speed(1.0).range(0.0..=360.0).suffix("°"))
+                    .on_hover_text("Azimuth (as in the patterns: 0° = +X, 90° = +Y) of the downhill direction.");
+            });
+            ui.end_row();
             let sm = &mut ant.ground.second;
             ui.label("Second ground");
             ui.checkbox(&mut sm.enabled, "sea, marsh or other ground nearby").on_hover_text(

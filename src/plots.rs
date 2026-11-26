@@ -12,7 +12,9 @@ pub const VERC: Color32 = Color32::from_rgb(20, 150, 70);
 #[derive(Clone, Copy, PartialEq)]
 pub enum PolarKind {
     Azimuth,
-    Elevation { ground: bool },
+    /// `tilt`: over sloping ground, the ground's fall in the cut (degrees; the
+    /// ground line runs from -tilt in front to +tilt behind)
+    Elevation { ground: bool, tilt: f32 },
 }
 
 pub struct PolarShow {
@@ -127,8 +129,11 @@ pub fn polar(
         let a = (k as f32 * 30.0).to_radians();
         painter.line_segment([c, c + Vec2::new(a.cos(), -a.sin()) * r0], Stroke::new(0.5, grid()));
     }
-    if let PolarKind::Elevation { ground: true } = kind {
-        painter.line_segment([c - Vec2::new(r0, 0.0), c + Vec2::new(r0, 0.0)], Stroke::new(1.5, Color32::from_rgb(140, 110, 70)));
+    if let PolarKind::Elevation { ground: true, tilt } = kind {
+        // the ground line through the centre, tilted downhill over sloping ground
+        let t = tilt.to_radians();
+        let d = Vec2::new(t.cos(), t.sin()) * r0;
+        painter.line_segment([c - d, c + d], Stroke::new(1.5, Color32::from_rgb(140, 110, 70)));
     }
     let labels: [(f32, &str); 4] = match kind {
         PolarKind::Azimuth => [(0.0, "0"), (90.0, "90"), (180.0, "180"), (270.0, "270")],
@@ -166,9 +171,11 @@ pub fn polar(
         }
     }
     // movable marker
-    let max_angle = match kind {
-        PolarKind::Elevation { ground: true } => 180.0,
-        _ => 360.0,
+    // over ground the marker stays above the ground line: angles from the front
+    // horizon in [lo, hi] (negative below it in front)
+    let above = match kind {
+        PolarKind::Elevation { ground: true, tilt } => Some((-(tilt as f64), 180.0 - tilt as f64)),
+        _ => None,
     };
     let pressed = if crate::theme::is_touch() { resp.clicked() } else { resp.is_pointer_button_down_on() || resp.clicked() || resp.dragged() };
     if pressed {
@@ -179,8 +186,14 @@ pub fn polar(
                 if a < 0.0 {
                     a += 360.0;
                 }
-                if max_angle < 360.0 && a > max_angle {
-                    a = if a > 270.0 { 0.0 } else { max_angle };
+                if let Some((lo, hi)) = above {
+                    if a > 270.0 {
+                        a -= 360.0;
+                    }
+                    // below the ground: to the nearer end of the line
+                    if a < lo || a > hi {
+                        a = if a > hi && a - hi < lo + 360.0 - a { hi } else { lo };
+                    }
                 }
                 *cursor = Some(a.round());
             }
@@ -190,7 +203,10 @@ pub fn polar(
         let (l, r) = ui.input(|i| (i.key_pressed(egui::Key::ArrowLeft), i.key_pressed(egui::Key::ArrowRight)));
         if l || r {
             let a = cursor.unwrap_or(0.0) + if l { 1.0 } else { -1.0 };
-            *cursor = Some(if max_angle < 360.0 { a.clamp(0.0, max_angle) } else { a.rem_euclid(360.0) });
+            *cursor = Some(match above {
+                Some((lo, hi)) => (if a > 270.0 { a - 360.0 } else { a }).clamp(lo, hi),
+                None => a.rem_euclid(360.0),
+            });
         }
     }
     if let (Some(a), true) = (*cursor, !data.is_empty() && gmax > 0.0) {
@@ -616,8 +632,10 @@ pub fn view3d(ui: &mut egui::Ui, size: Vec2, ant: &Antenna, calc: Option<&FullRe
         for i in 0..=n {
             let t = -g + 2.0 * g * i as f64 / n as f64;
             let col = Stroke::new(0.6, Color32::from_rgb(190, 170, 130));
-            painter.line_segment([proj([ctr[0] + t, ctr[1] - g, 0.0]), proj([ctr[0] + t, ctr[1] + g, 0.0])], col);
-            painter.line_segment([proj([ctr[0] - g, ctr[1] + t, 0.0]), proj([ctr[0] + g, ctr[1] + t, 0.0])], col);
+            // on the ground surface (tilted over sloping ground)
+            let on = |x: f64, y: f64| proj([x, y, ant.ground.surface_z(x, y)]);
+            painter.line_segment([on(ctr[0] + t, ctr[1] - g), on(ctr[0] + t, ctr[1] + g)], col);
+            painter.line_segment([on(ctr[0] - g, ctr[1] + t), on(ctr[0] + g, ctr[1] + t)], col);
         }
     }
     // second ground's boundary (blue), labelled on its side

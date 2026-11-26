@@ -207,6 +207,11 @@ struct Extras {
     #[serde(default)]
     source_current: Vec<bool>,
     load_pos: Vec<f64>,
+    /// sloping ground (NEC-2 has level ground only; see `Ground::slope_deg`)
+    #[serde(default)]
+    slope_deg: f64,
+    #[serde(default)]
+    downhill_deg: f64,
 }
 
 const EXTRAS: &str = "wireant settings ";
@@ -712,6 +717,8 @@ pub fn parse(text: &str, file_name: &str) -> Result<Imported, String> {
         ant.fb_az = x.fb_az;
         ant.fb_el = x.fb_el;
         ant.open_ends = x.open_ends;
+        ant.ground.slope_deg = x.slope_deg;
+        ant.ground.downhill_deg = x.downhill_deg;
         ant.seg = x.seg;
         if x.wire_seg.len() == ant.wires.len() {
             for (w, s) in ant.wires.iter_mut().zip(&x.wire_seg) {
@@ -783,6 +790,8 @@ pub fn write(ant: &Antenna) -> String {
         source_pos: ant.sources.iter().map(|s| s.pos).collect(),
         source_current: ant.sources.iter().map(|s| s.current).collect(),
         load_pos: ant.loads.iter().map(|l| l.pos).collect(),
+        slope_deg: ant.ground.slope_deg,
+        downhill_deg: ant.ground.downhill_deg,
     };
     cm(&mut o, &format!("{EXTRAS}{}", serde_json::to_string(&extras).unwrap_or_default()));
     for (i, w) in ant.wires.iter().enumerate().filter(|(_, w)| w.insulated()) {

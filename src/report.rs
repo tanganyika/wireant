@@ -766,7 +766,7 @@ pub fn build(ant: &Antenna, source: Option<&Path>, calc: Option<&FullResult>, hi
         d.need(2.0 * r0 + 80.0);
         d.y += 8.0;
         let cy = d.y + r0 + 34.0;
-        let el: Vec<(f64, Gain)> = if ground { p.el_cut.iter().filter(|(t, _)| *t <= 180.0).cloned().collect() } else { p.el_cut.clone() };
+        let el: Vec<(f64, Gain)> = if ground { p.el_cut_above_ground() } else { p.el_cut.clone() };
         polar(
             &mut d.pdf,
             M + (PAGE_W - 2.0 * M) * 0.25,
@@ -1137,7 +1137,7 @@ pub fn build_comparison(ant: &Antenna, source: Option<&Path>, cmp: &Comparison) 
         d.need(2.0 * r0 + 80.0);
         d.y += 8.0;
         let cy = d.y + r0 + 34.0;
-        let half = |p: &crate::mom::Patterns| -> Vec<(f64, Gain)> { if ground { p.el_cut.iter().filter(|(t, _)| *t <= 180.0).cloned().collect() } else { p.el_cut.clone() } };
+        let half = |p: &crate::mom::Patterns| -> Vec<(f64, Gain)> { if ground { p.el_cut_above_ground() } else { p.el_cut.clone() } };
         polar_pair(
             &mut d.pdf,
             M + (PAGE_W - 2.0 * M) * 0.25,
