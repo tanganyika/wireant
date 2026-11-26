@@ -229,6 +229,16 @@ pub fn profiles(req: &Request) -> Result<Fetched, String> {
     profiles_with(req, cache_dir(), &download)
 }
 
+/// The saved site's terrain (Preferences: site, +X bearing, profiles and radius)
+/// from the tiles already in the cache, without the network: None when no site
+/// is saved, an error when its tiles haven't been downloaded yet.
+pub fn from_cache() -> Option<Result<(Fetched, Request), String>> {
+    let s = crate::settings::get();
+    let site = parse_site(&s.site)?;
+    let req = Request { site, x_bearing: s.x_bearing, bearings: s.terrain_bearings, radius_m: s.terrain_radius_km * 1000.0, step_m: 30.0 };
+    Some(profiles_with(&req, cache_dir(), &|_, _, _| Err("not cached".into())).map(|f| (f, req)))
+}
+
 /// A site typed as "lat, lon" in decimal degrees (south and west negative, or with
 /// N/S/E/W after the numbers) or as a Maidenhead locator of 6 to 10 characters.
 pub fn parse_site(s: &str) -> Option<(f64, f64)> {
@@ -294,7 +304,7 @@ impl Default for FetchState {
         let s = crate::settings::get();
         // a locator fine enough to start from, else nothing
         let site = if !s.site.is_empty() { s.site } else if s.locator.trim().len() >= 8 { s.locator } else { String::new() };
-        FetchState { open: false, site, bearings: 36, radius_km: 5.0, job: None, error: None }
+        FetchState { open: false, site, bearings: s.terrain_bearings, radius_km: s.terrain_radius_km, job: None, error: None }
     }
 }
 
@@ -412,8 +422,12 @@ pub fn window(ctx: &egui::Context, st: &mut FetchState, gc: &mut crate::greatcir
             let can = site.is_some() && st.job.is_none();
             if ui.add_enabled(can, egui::Button::new("Fetch terrain")).clicked() {
                 let req = Request { site: site.unwrap(), x_bearing: gc.x_bearing(), bearings: st.bearings, radius_m: st.radius_km * 1000.0, step_m: 30.0 };
-                let s = st.site.trim().to_string();
-                crate::settings::set(|x| x.site = s);
+                let (s, n, r) = (st.site.trim().to_string(), st.bearings, st.radius_km);
+                crate::settings::set(|x| {
+                    x.site = s;
+                    x.terrain_bearings = n;
+                    x.terrain_radius_km = r;
+                });
                 let (tx, rx) = std::sync::mpsc::channel();
                 let ctx = ui.ctx().clone();
                 std::thread::spawn(move || {

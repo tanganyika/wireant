@@ -34,6 +34,9 @@ pub struct Settings {
     pub x_bearing: f64,
     /// The antenna's position for terrain from elevation data, as typed ("lat, lon" or a locator).
     pub site: String,
+    /// Terrain profiles fetched all round, and how far out (km).
+    pub terrain_bearings: usize,
+    pub terrain_radius_km: f64,
     /// "light", "dark", or empty to follow the system.
     pub theme: String,
 }
@@ -42,7 +45,7 @@ pub const DEFAULT_NEC_ARGS: &str = "{in} {out}";
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { last_dir: None, last_file: None, open_last: false, calc_on_open: false, default_engine: None, nec_path: String::new(), nec_args: DEFAULT_NEC_ARGS.into(), nec_stdin: false, nec_jobs: 0, locator: String::new(), x_bearing: 0.0, site: String::new(), theme: String::new() }
+        Settings { last_dir: None, last_file: None, open_last: false, calc_on_open: false, default_engine: None, nec_path: String::new(), nec_args: DEFAULT_NEC_ARGS.into(), nec_stdin: false, nec_jobs: 0, locator: String::new(), x_bearing: 0.0, site: String::new(), terrain_bearings: 36, terrain_radius_km: 5.0, theme: String::new() }
     }
 }
 
@@ -83,6 +86,8 @@ impl Settings {
                 "locator" => s.locator = v.trim().to_string(),
                 "x_bearing" => s.x_bearing = v.trim().parse().unwrap_or(0.0),
                 "site" => s.site = v.trim().to_string(),
+                "terrain_bearings" => s.terrain_bearings = v.trim().parse().ok().filter(|&n: &usize| (1..=360).contains(&n)).unwrap_or(36),
+                "terrain_radius_km" => s.terrain_radius_km = v.trim().parse().ok().filter(|&r: &f64| r > 0.0 && r <= 30.0).unwrap_or(5.0),
                 "theme" => s.theme = v.trim().to_ascii_lowercase(),
                 _ => {}
             }
@@ -113,6 +118,7 @@ impl Settings {
         if !self.site.is_empty() {
             t += &format!("site={}\n", self.site);
         }
+        t += &format!("terrain_bearings={}\nterrain_radius_km={}\n", self.terrain_bearings, self.terrain_radius_km);
         if !self.theme.is_empty() {
             t += &format!("theme={}\n", self.theme);
         }
@@ -184,6 +190,8 @@ mod tests {
             locator: "IO91wm".into(),
             x_bearing: 112.5,
             site: "53.1177, -4.1302".into(),
+            terrain_bearings: 72,
+            terrain_radius_km: 8.5,
             theme: "dark".into(),
         };
         assert_eq!(Settings::parse(&s.format()), s);

@@ -1659,7 +1659,9 @@ impl App {
             ui.columns(ncols, |cols| {
                 let ui = &mut cols[0];
                 card!(ui, "card_ground", "Ground and wire", |_ui| {}, |ui| {
-                    ground_controls(ui, &mut self.ant);
+                    if let Some(n) = ground_controls(ui, &mut self.ant) {
+                        self.status = n;
+                    }
                 });
                 let ui = &mut cols[cols.len() - 1];
                 card!(ui, "card_segm", "Automatic segmentation", |_ui| {}, |ui| {
@@ -1837,7 +1839,9 @@ impl App {
             engine_pick(ui, "eng_calc", &mut self.ant.engine);
             ui.end_row();
         });
-        ground_controls(ui, &mut self.ant);
+        if let Some(n) = ground_controls(ui, &mut self.ant) {
+            self.status = n;
+        }
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             ui.label("Threads");
@@ -2899,7 +2903,9 @@ fn terrain_editor(ui: &mut egui::Ui, t: &mut TerrainSpec) -> Option<String> {
     note
 }
 
-fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
+/// The ground settings; returns a note for the status line.
+fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) -> Option<String> {
+    let mut note = None;
     egui::Grid::new(ui.next_auto_id()).spacing([8.0, 6.0]).show(ui, |ui| {
         ui.label("Ground");
         egui::ComboBox::from_id_salt(ui.next_auto_id()).selected_text(ant.ground.kind.label()).show_ui(ui, |ui| {
@@ -2950,7 +2956,21 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
                     && t.enabled
                     && t.profiles.is_empty()
                 {
-                    t.profiles.push(TerrainProfile { bearing_deg: 0.0, points: vec![[0.0, 0.0], [1000.0, 0.0]] });
+                    // the saved site's terrain, if its tiles are cached; else a flat start
+                    match crate::dem::from_cache() {
+                        Some(Ok((f, req))) => {
+                            t.profiles = f.profiles;
+                            note = Some(format!(
+                                "Terrain from elevation data for your site ({:.5}, {:.5}; +X toward {:.0}°): {} profiles out to {:.1} km. From elevation data… on the Terrain card changes them.",
+                                req.site.0, req.site.1, req.x_bearing, t.profiles.len(), req.radius_m / 1000.0
+                            ));
+                        }
+                        Some(Err(_)) => {
+                            t.profiles.push(TerrainProfile { bearing_deg: 0.0, points: vec![[0.0, 0.0], [1000.0, 0.0]] });
+                            note = Some("Your site's elevation data isn't downloaded yet: use From elevation data… on the Terrain card.".into());
+                        }
+                        None => t.profiles.push(TerrainProfile { bearing_deg: 0.0, points: vec![[0.0, 0.0], [1000.0, 0.0]] }),
+                    }
                 }
                 if t.enabled {
                     let n = t.profiles.len();
@@ -3048,6 +3068,7 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) {
         ui.add(crate::num::Num::new(&mut ant.z0).speed(1.0).range(1.0..=10000.0));
         ui.end_row();
     });
+    note
 }
 
 impl eframe::App for App {

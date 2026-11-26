@@ -73,6 +73,9 @@ from map elevation data, as Radio Mobile and HFTA's helper tools use. Give:
   reflect from up to a few km away; hills further out only cut the very lowest angles.
 
 **Fetch terrain** replaces the card's profiles (Undo in the View tab brings the old ones back).
+The position and the profile settings are remembered: on any other antenna, ticking **Terrain**
+fills the card straight away from the elevation data already downloaded for that position,
+without opening this window or using the network. Antennas saved with terrain keep their own.
 The heights are relative to the ground at the antenna and fall away with the earth's curvature
 (using 4/3 of the earth's radius, for ordinary refraction): about 1.5 m at 5 km. Each profile
 keeps only the points needed to stay within 1 m of the data.

@@ -109,7 +109,7 @@ their code or files. MMANA-GAL basic is freeware for private use from <http://ww
   (metres or feet), or fetched all round the site from map elevation data
   (**From elevation data…**: give the antenna's latitude and longitude; the AWS
   Terrain Tiles, built from SRTM and national surveys, are downloaded once and
-  cached). They are blended between bearings and drawn in the View tab. Terrain
+  cached; after that, ticking Terrain on any antenna fills it in for your site). They are blended between bearings and drawn in the View tab. Terrain
   shapes the patterns only; the impedance sees the ground under the antenna.
 - **Tools menu:**
   - **Resonance finder:** sweeps a range on all cores (31 points by default),
