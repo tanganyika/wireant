@@ -214,7 +214,7 @@ struct Prefs {
 }
 
 /// What the antenna has that a file of this kind can't hold. `.nec` keeps everything; `.maa`
-/// has no transmission lines or plates; `.ez` (as written here) has neither, nor the second ground.
+/// has no transmission lines or plates; `.ez` (as written here) has neither, nor the second or sloping ground.
 pub(crate) fn not_saved(ant: &Antenna, is_ez: bool, is_nec: bool) -> Vec<String> {
     let mut v = vec![];
     if is_nec {
@@ -233,6 +233,9 @@ pub(crate) fn not_saved(ant: &Antenna, is_ez: bool, is_nec: bool) -> Vec<String>
     }
     if is_ez && ant.ground.second.enabled && ant.ground.kind != GroundKind::Free {
         v.push("the second ground (sea, marsh or other ground nearby)".into());
+    }
+    if is_ez && ant.ground.slope().is_some() {
+        v.push("the sloping ground".into());
     }
     // MMANA has voltage sources only (EZNEC files keep current sources)
     let cur = ant.sources.iter().filter(|s| s.current).count();

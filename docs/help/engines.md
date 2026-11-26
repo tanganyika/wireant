@@ -18,6 +18,7 @@ simple antenna in free space. They differ over real ground and in what they can 
 - **Free space or perfect ground**: any of them. They agree closely.
 - **Low antennas over real ground**: wiremom or NEC-2. MININEC's impedance can be noticeably off.
 - **Ground-mounted verticals, buried radials, ground rods**: wiremom only.
+- **Sloping ground** (a hillside): wiremom only.
 - **Feed lines and stubs with loss**: wiremom.
 - **Plates**: wiremom.
 

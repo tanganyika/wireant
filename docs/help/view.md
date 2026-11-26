@@ -14,7 +14,7 @@ current, from blue (low) to red (high).
   **Zoom out** steps back out.
 
 The scale bar in the corner shows a length on the screen. Over ground, the grid shows the
-ground's surface. With a second ground, its boundary is drawn in blue.
+ground's surface, tilted over sloping ground. With a second ground, its boundary is drawn in blue.
 
 ## Editing a wire
 

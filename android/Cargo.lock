@@ -2714,7 +2714,7 @@ dependencies = [
 [[package]]
 name = "wiremom"
 version = "0.1.0"
-source = "git+https://github.com/tanganyika/wiremom?branch=master#da7b7b93b56c4b21344467c7583b80f824de3134"
+source = "git+https://github.com/tanganyika/wiremom?branch=master#ac67a643d9706f234ad586636d19d258ca42ebaf"
 dependencies = [
  "complex-bessel",
  "num-complex",

@@ -774,6 +774,7 @@ pub fn calculate(ant: &Antenna, prog: &crate::progress::Progress) -> Result<Full
         az_cut_deg: res.az_max,
         free_space: !grounded,
         cut_tilt: 0.0,
+        slope: None,
         grid,
         grid_els,
         grid_step: 3.0,

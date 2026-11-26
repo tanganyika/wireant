@@ -15,7 +15,7 @@ from the file name's ending (`.maa`, `.nec` or `.ez`); without one, it saves `.m
 `.nec` files keep everything. Settings NEC has no card for, such as the SWR reference and
 automatic segmentation, are kept in `CM` comment lines that other NEC programs skip. The
 added height is folded into the wires' heights. `.maa` files can't hold transmission lines, transformers, plates or
-current sources, and EZNEC files as saved here can't hold lines, plates or the second ground. If
+current sources, and EZNEC files as saved here can't hold lines, plates, the second ground or a sloping ground. If
 you save an antenna that has any of these to a file that can't hold them, a note says what was
 left out.
 

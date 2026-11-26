@@ -25,6 +25,24 @@ Choose the ground on the Geometry or Calculate tab.
 **Add height (m)** raises the whole antenna by that amount above the ground, without changing
 the wire coordinates. This is a quick way to try different heights.
 
+## Sloping ground
+
+Set **Slope** to model an antenna on a hillside. The ground's surface is tilted by that many
+degrees through the origin, falling toward the bearing in **falling toward** (an azimuth: 0° = +X,
+90° = +Y). Along that bearing the ground is lower by tan(slope) × the distance from the origin.
+
+- The wires keep their coordinates, so a mast stays vertical while the ground tilts under it. Put
+  the antenna's base at the origin, where the ground is at Z = 0. Wires touching the ground, radials
+  lying on it and buried wires are measured against the sloping surface, so a radial lying on it
+  needs its far end at the ground's height there.
+- The patterns reach below the horizon downhill: the vertical pattern draws the ground line
+  tilted, and the gain is zero below the ground. A lower takeoff angle toward the valley is the
+  main effect of a hillside site.
+- The slope runs on for ever. That is exact for the impedance and for rays that reflect near the
+  antenna, but optimistic for low rays toward the valley, which in reality reflect from ground
+  far away.
+- Sloping ground needs the **wiremom** engine, and can't yet be combined with a second ground.
+
 ## Wires touching or in the ground
 
 - A wire end at Z = 0 connects to the ground. Over perfect ground this is exact.

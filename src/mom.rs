@@ -813,6 +813,8 @@ pub struct Patterns {
     /// Over sloping ground, the ground's fall (degrees) in the elevation cut: it lies
     /// at elevation -cut_tilt in front and +cut_tilt behind (0 over level ground).
     pub cut_tilt: f64,
+    /// Over sloping ground, (slope, downhill azimuth) in degrees, for drawing it.
+    pub slope: Option<(f64, f64)>,
     /// 3D pattern: total gain (linear) at `grid_els[i]` elevation, `j * grid_step` azimuth.
     pub grid: Vec<Vec<f64>>,
     pub grid_els: Vec<f64>,
@@ -1305,6 +1307,7 @@ pub fn patterns(ant: &Antenna, res: &mut CalcResult, rad: &Radiator, prog: &Prog
         az_cut_deg: azf,
         free_space: ant.ground.kind == GroundKind::Free,
         cut_tilt: ant.ground.tilt_toward(azf),
+        slope: ant.ground.slope().map(|_| (ant.ground.slope_deg, ant.ground.downhill_deg)),
         grid,
         grid_els,
         grid_step,

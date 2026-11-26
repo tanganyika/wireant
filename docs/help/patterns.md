@@ -8,7 +8,8 @@ on the tab.
 The left plot is the **horizontal pattern**, seen from above at the elevation of the strongest
 radiation. 0° is +X, the antenna's front, and angles go anticlockwise towards +Y at 90°. The right
 plot is the **vertical pattern**, seen from the side in the direction of the strongest radiation,
-with the front on the right.
+with the front on the right. Over ground a brown line shows the ground; over sloping ground it is
+tilted, and the pattern goes below the horizon on the downhill side.
 
 The rings are 0, −3, −6, −10, −20 and −30 dB below the maximum, on a logarithmic scale.
 
@@ -32,4 +33,4 @@ red (strong).
   - **dB**: linear in decibels, down to the floor shown in the colour bar.
   - **Linear**: in proportion to the field strength. Small lobes almost vanish.
 
-Over ground, the ground's surface is drawn as a disc.
+Over ground, the ground's surface is drawn as a disc, tilted over sloping ground.

@@ -1177,7 +1177,10 @@ pub fn pattern3d(ui: &mut egui::Ui, size: Vec2, p: &crate::mom::Patterns, st: &m
     if !p.free_space {
         let ring: Vec<Pos2> = (0..=72).map(|k| {
             let a = (k as f32 * 5.0).to_radians();
-            to_screen(cam([1.05 * a.cos(), 1.05 * a.sin(), 0.0]))
+            let (x, y) = (1.05 * a.cos(), 1.05 * a.sin());
+            // tilted with a sloping ground
+            let z = p.slope.map_or(0.0, |(s, d)| -(s as f32).to_radians().tan() * (x * (d as f32).to_radians().cos() + y * (d as f32).to_radians().sin()));
+            to_screen(cam([x, y, z]))
         }).collect();
         painter.add(egui::Shape::convex_polygon(ring.clone(), Color32::from_rgba_unmultiplied(200, 180, 140, 60), Stroke::NONE));
         painter.line(ring, Stroke::new(1.0, Color32::from_rgb(170, 140, 90)));

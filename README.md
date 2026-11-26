@@ -13,8 +13,8 @@ model can also include:
 - **baluns, ununs and coax chokes**, modelled as real windings with their losses;
 - **matching networks**: L networks, gamma matches and coax sections, designed for you and
   added to the model;
-- **ground systems**: buried radials, ground rods and counterpoises, and a second ground such as
-  the sea or a cliff edge;
+- **ground systems**: buried radials, ground rods and counterpoises, a second ground such as
+  the sea or a cliff edge, and sloping ground for hillside sites;
 - **arrays**: stacked and bayed copies of an antenna, fed in phase.
 
 Around the model it also gives antenna reports, great-circle maps and RF exposure maps.
@@ -96,6 +96,12 @@ their code or files. MMANA-GAL basic is freeware for private use from <http://ww
   when the shore is close. NEC-2 (and the "reflection point" option) uses the
   ground where each ray reflects. The View tab draws the boundary in blue. Ground
   presets fill in typical εr and σ.
+- **Sloping ground (wiremom engine):** a hillside: the perfect or real ground
+  tilted by a slope through the origin, falling toward any bearing. Wires keep
+  their coordinates (masts stay vertical); radials lying on the slope and buried
+  wires are measured against it. The patterns reach below the horizon downhill,
+  where the takeoff angle drops by about the slope. The slope runs on for ever,
+  so low-angle gain toward the valley is optimistic.
 - **Tools menu:**
   - **Resonance finder:** sweeps a range on all cores (31 points by default),
     finds every reactance zero, and refines each with a few extra solves. The
@@ -208,6 +214,7 @@ Preferences start-up engine; `WIREANT_ENGINE` overrides it, as for the program. 
 | **Transformers** (baluns, ununs) | Yes | Yes | No |
 | **Plates** | Yes, flat plates | No (NEC-2 patches are only for closed surfaces) | No |
 | **Steel wire** (permeability) | Yes | Approximated (σ/μr) | Yes |
+| **Sloping ground** (hillside) | Yes, exact for an endless slope | No | No |
 | **Second ground area** (sea, marsh, cliff) | Gradual change across the boundary, or the ground where each ray reflects | Only the ground where each ray reflects (GD card) | Gradual change or reflection point, like wiremom |
 | **How it runs** | Inside the program, on all cores; sweeps reuse the slow ground calculation | A separate program run for each calculation, many at once | Inside the program, on all cores |
 
@@ -302,9 +309,12 @@ These are the weaker spots, with how far they have been checked.
   modelled by turning the antenna, which NEC-2 files can't express: exported
   decks keep the full description in a `CM wireant ground2` line, and NEC-2
   itself reads the GD card as a boundary along +X.
+- **Sloping ground:** wiremom only, a single endless slope through the origin (no
+  terrain profile yet), and not together with a second ground. NEC files keep it
+  in the `CM wireant settings` line, but the deck itself describes level ground.
 - **Files:** transmission lines in EZNEC files are skipped on import. `.maa` files
-  can't hold transmission lines or plates, and saved `.ez` files can't hold those or the
-  second ground; saving says what was left out. Use `.nec` to keep everything.
+  can't hold transmission lines or plates, and saved `.ez` files can't hold those, the
+  second ground or a sloping ground; saving says what was left out. Use `.nec` to keep everything.
 - **Wire editor:** changes apply immediately. Press Calculate again for new
   results; the old results stay on screen until you do.
 
