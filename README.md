@@ -1,8 +1,23 @@
 # wireant
 
-A desktop program for Linux, Windows and macOS for modelling wire antennas: impedance, SWR, gain, front-to-back,
+A program for Linux, Windows, macOS and Android for modelling antennas: impedance, SWR, gain, front-to-back,
 radiation patterns (2D and 3D), frequency sweeps and an optimizer. It is written in Rust with
 egui, and the heavy calculations run on every processor core.
+
+Despite the name, wireant isn't limited to wire antennas. Wires are the building block, but a
+model can also include:
+
+- **conducting plates**: reflectors, ground screens and car-body panels, with monopoles fed
+  against them;
+- **transmission lines**: feed lines, phasing lines and stubs;
+- **baluns, ununs and coax chokes**, modelled as real windings with their losses;
+- **matching networks**: L networks, gamma matches and coax sections, designed for you and
+  added to the model;
+- **ground systems**: buried radials, ground rods and counterpoises, and a second ground such as
+  the sea or a cliff edge;
+- **arrays**: stacked and bayed copies of an antenna, fed in phase.
+
+Around the model it also gives antenna reports, great-circle maps and RF exposure maps.
 
 It was built as an independent take on the classic MMANA-GAL basic workflow. It is **not**
 affiliated with or endorsed by the MMANA-GAL authors (JE3HHT, DL1PBD, DL2KQ), and contains none of
@@ -375,6 +390,17 @@ cargo build --release
 Command-line options: `--tab <name>` opens a tab, and `--screenshot out.png` saves a picture of the
 window and exits (used for automated checks).
 
+## Install on Android
+
+Each release has `wireant-<version>-android-arm64.apk` for 64-bit ARM phones and tablets
+(Android 8 or later). Download it on the phone and open it; Android asks once to allow
+installing apps from the browser or file manager you used. Later releases install over it.
+
+The Android app is the same program with a touch layout: on a phone the tabs move to a bottom
+bar, and light or dark follows the phone. File → Open and Save use Android's file picker. It
+has the wiremom and MININEC engines only: there is no NEC-2 engine and no external NEC program,
+because Android can't run them. To build the APK yourself, see [android/README.md](android/README.md).
+
 ## Project layout
 
 | Path | What |
@@ -391,7 +417,8 @@ window and exits (used for automated checks).
 | `src/app.rs`, `src/plots.rs` | user interface and plots |
 | `MECHANICS.md`, `mechanics.json` | where each formula and value came from |
 | `tools/cc.sh` | optional C compiler for nec2c (`NEC2C_CC=tools/cc.sh`; falls back to `zig cc` when no `cc` exists) |
-| `.github/workflows/build.yml`, `packaging/` | CI and the Linux, Windows and macOS packages |
+| `.github/workflows/build.yml`, `packaging/` | CI and the Linux, Windows, macOS and Android packages |
+| `android/` | Android app: builds the same sources into an APK ([android/README.md](android/README.md)) |
 
 ## Working on the wiremom engine at the same time
 
