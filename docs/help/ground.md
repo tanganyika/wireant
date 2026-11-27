@@ -129,6 +129,10 @@ The View tab draws the profiles as brown lines from the origin.
   radials.
 - Keep other wires at least three wire radii away from the surface, above or below. Closer than
   that, no thin-wire engine (NEC included) is reliable, and the program warns about it.
+- The **External NEC** engine (NEC-4 or later) also takes wires below Z = 0 over real ground. A
+  wire that goes through the surface gets a segment end at Z = 0, as NEC needs. Wires lying in
+  the surface at Z = 0 can't go to NEC: put them a little into the soil and join them with a short
+  wire.
 - NEC-2 and MININEC can't model wires in the ground.
 
 ## Second ground

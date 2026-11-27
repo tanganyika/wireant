@@ -19,6 +19,9 @@ current sources, and EZNEC files as saved here can't hold lines, plates, the sec
 you save an antenna that has any of these to a file that can't hold them, a note says what was
 left out.
 
+Saved EZNEC files use EZNEC's High Accuracy ground for the NEC engines and whenever wires go
+into the ground (EZNEC's MININEC-type ground can't take them), and MININEC-type ground otherwise.
+
 EZNEC files are read with their transmission lines (including stubs), L networks, transformers
 and current sources. L networks become transmission lines with lumped parts, which keep the
 impedance they have at the file's frequency. A transformer becomes an ideal transformer with the

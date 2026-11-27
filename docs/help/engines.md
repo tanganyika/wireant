@@ -11,13 +11,15 @@ simple antenna in free space. They differ over real ground and in what they can 
 - **NEC-2**: the standard NEC-2 program, built in. It is the reference to compare with EZNEC,
   4nec2 and other NEC tools. It can't model plates or wires in the ground, and it treats
   transmission lines as lossless.
-- **External NEC** (experimental): your own copy of NEC-4, NEC-5 or another NEC program.
+- **External NEC** (experimental): your own copy of NEC-4, NEC-5 or another NEC program. With
+  NEC-4 or later it also takes wires in the ground (see Ground).
 
 ## Which to use
 
 - **Free space or perfect ground**: any of them. They agree closely.
 - **Low antennas over real ground**: wiremom or NEC-2. MININEC's impedance can be noticeably off.
-- **Ground-mounted verticals, buried radials, ground rods**: wiremom only.
+- **Ground-mounted verticals, buried radials, ground rods**: wiremom, or External NEC with NEC-4
+  or later.
 - **Sloping ground** (a hillside) and **terrain** (hills and ridges around): wiremom only.
 - **Feed lines and stubs with loss**: wiremom.
 - **Plates**: wiremom.

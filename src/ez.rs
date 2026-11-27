@@ -463,7 +463,11 @@ pub fn write(ant: &Antenna) -> Vec<u8> {
     w.u8(117, if rlc { b'R' } else { b'Z' });
     w.u16(118, 1);
     w.u8(122, b'E');
-    w.u8(123, if ant.engine == Engine::Nec2 { b'H' } else { b'M' });
+    // ground analysis: High Accuracy (Sommerfeld) for NEC and for wires in the soil,
+    // which EZNEC's MININEC-type ground can't take; otherwise MININEC-type, which (like
+    // wiremom's stand-in) treats a connection to the ground as perfect
+    let high = matches!(ant.engine, Engine::Nec2 | Engine::External) || crate::wm::has_buried(ant);
+    w.u8(123, if high { b'H' } else { b'M' });
     w.u32(124, max_rec as u32);
     w.u32(128, nw as u32);
     w.f(136, 5.0);
@@ -571,6 +575,24 @@ pub fn write(ant: &Antenna) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Wires in the soil need EZNEC's High Accuracy ground (byte 123 'H') whatever the
+    /// engine; a vertical that only stops on the ground keeps MININEC-type ground with
+    /// wiremom, as wiremom's perfect-ground stand-in does.
+    #[test]
+    fn buried_wires_get_high_accuracy_ground() {
+        let mut a = Antenna::example(3);
+        a.engine = Engine::Wiremom;
+        a.ground.kind = GroundKind::Real;
+        assert_eq!(write(&a)[123], b'M');
+        a.wires.push(crate::model::Wire::new([0.0, 0.0, 0.0], [0.0, 0.0, -1.0], 0.005));
+        assert_eq!(write(&a)[123], b'H');
+        a.engine = Engine::Mininec;
+        assert_eq!(write(&a)[123], b'H');
+        a.wires.pop();
+        a.engine = Engine::External;
+        assert_eq!(write(&a)[123], b'H');
+    }
 
     #[test]
     fn round_trip_examples() {
