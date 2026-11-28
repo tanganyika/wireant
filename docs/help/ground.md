@@ -128,8 +128,8 @@ The View tab draws the profiles as brown lines from the origin.
   - **on top of the soil**: in the air, just touching it (the wire's axis one outer radius up,
     wire plus insulation). Use this for wire newly laid on the ground, as in a portable set-up.
     Wires rising from Z = 0 start at the same height, where they meet the radials.
-- The two placements can differ a lot: for a 20 m vertical with 16 insulated radials 5 m long
-  over average ground, 52 Ω and 21% efficiency in the soil, 40 Ω and 29% on top. A real ground
+- The two placements differ noticeably: for a 20 m vertical with 16 insulated radials 5 m long
+  over average ground, 48 Ω and 26% efficiency in the soil, 39 Ω and 29% on top. A real ground
   system lies between them, so the results give the feed impedance and efficiency for both (one
   more solve, on Calculate only, not in sweeps or the optimizer). The next section explains why.
 - Keep other wires at least three wire radii away from the surface, above or below. Closer than
