@@ -2836,7 +2836,7 @@ dependencies = [
 
 [[package]]
 name = "wireant-android"
-version = "0.12.1"
+version = "0.12.2"
 dependencies = [
  "android_logger",
  "dirs",
