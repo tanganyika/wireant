@@ -297,7 +297,12 @@ These are the weaker spots, with how far they have been checked.
   second, wire that grass has grown round nearer the first. The two can differ a
   lot (21% against 29% efficiency for a 20 m vertical with 16 radials 5 m long
   over average ground), so the results give the impedance and efficiency for
-  both.
+  both. The reason is that a wire's loss and wave speed are set mostly by the
+  few millimetres around it, and thin-wire engines (NEC included) can only put
+  those millimetres wholly in air or wholly in soil, not partly in each. Even an
+  exact calculation would hinge on details nobody measures: how far the wire has
+  sunk in, the grass and leaf litter round it, how wet it is. The Ground help
+  page ("Why a wire lying on the ground is hard to model") explains this in full.
 - **Wires that only stop on the surface of real ground**, with nothing lying on
   it or below it (no rod or radials), use a perfect-ground stand-in for the
   currents. A point contact into lossy earth can't be modelled. The warning

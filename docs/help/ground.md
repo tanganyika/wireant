@@ -128,14 +128,10 @@ The View tab draws the profiles as brown lines from the origin.
   - **on top of the soil**: in the air, just touching it (the wire's axis one outer radius up,
     wire plus insulation). Use this for wire newly laid on the ground, as in a portable set-up.
     Wires rising from Z = 0 start at the same height, where they meet the radials.
-- A wire's field reaches only a few millimetres, so whether those millimetres are air or soil
-  decides how lossy a radial is. The two placements can differ a lot: for a 20 m vertical with 16
-  insulated radials 5 m long over average ground, 52 Ω and 21% efficiency in the soil, 40 Ω and
-  29% on top. Within each placement the exact height hardly matters: from 5 cm up down to
-  touching the soil gives much the same, and so does anything from just under the surface to 5 cm
-  down. A real ground system lies between the two placements, so the results give the feed
-  impedance and efficiency for both (one more solve, on Calculate only, not in sweeps or the
-  optimizer).
+- The two placements can differ a lot: for a 20 m vertical with 16 insulated radials 5 m long
+  over average ground, 52 Ω and 21% efficiency in the soil, 40 Ω and 29% on top. A real ground
+  system lies between them, so the results give the feed impedance and efficiency for both (one
+  more solve, on Calculate only, not in sweeps or the optimizer). The next section explains why.
 - Keep other wires at least three wire radii away from the surface, above or below. Closer than
   that, the soil or the wire's image is about as close as the wire is thick, which thin-wire
   engines can only approximate, and the program warns about it.
@@ -144,6 +140,51 @@ The View tab draws the profiles as brown lines from the origin.
   the surface at Z = 0 can't go to NEC: put them a little into the soil and join them with a short
   wire.
 - NEC-2 and MININEC can't model wires in the ground.
+
+## Why a wire lying on the ground is hard to model
+
+A wire resting on the soil is partly in air and partly in soil, and no engine can model that
+exactly. There are three reasons.
+
+**What matters happens within a few millimetres of the wire.** A wire's inductance and
+capacitance per metre set how fast the wave travels along it and how much it loses. Most of the
+field that decides them lies within a few wire radii, a few millimetres for a typical radial. So
+the material in those millimetres largely decides how the radial behaves:
+
+- All soil around the wire: the wave is slow (at 14 MHz over average ground its wavelength is
+  about 6 m instead of 21 m) and dies out within a few metres.
+- All air, even with the soil a millimetre away: most of the field is in lossless air, so the
+  wave is faster and travels further.
+- Lying on the ground: partly both, in a proportion set by how the wire meets the soil.
+
+Within each case the exact height hardly matters: from 5 cm up down to touching the soil gives
+much the same, and so does anything from just under the surface to 5 cm down. The big change is
+in crossing the surface.
+
+**Thin-wire engines assume the wire is surrounded by one material.** NEC, MININEC and wiremom
+all treat the current as spread evenly round the wire, and work out its field as if the wire were
+wholly in air or wholly in soil. A wire lying across the surface breaks that: its charge crowds
+onto the soil side, and most of its field squeezes into the thin wedge of gap where the wire
+meets the soil. The ground calculation also breaks down: its integrals converge only because the
+wire is some distance from the surface, and at zero distance they don't. That is why a wire at
+exactly Z = 0 can't be calculated as it is, by wiremom or by NEC.
+
+**Even an exact calculation would depend on details nobody measures.** How far the wire has sunk
+in, whether there is an air gap under the insulation, what the grass, roots and leaf litter round
+it are made of and how wet they are, and, for bare wire, whether it makes electrical contact with
+the soil along its length.
+
+So the program gives the range: the wire just in the soil and the wire just on top. The gap
+between them is a fair measure of how much the real result depends on those details. To choose
+the placement for the main results:
+
+- **Radials that grass, roots or leaves have grown round** (a permanent installation): in the
+  soil.
+- **Wire newly laid on grass or leaf litter**: on top. It usually rests on the grass, a few
+  millimetres to a centimetre or two above the soil, so its field is nearly all in air.
+- **Wire on bare soil, sand or a wet surface, or pressed in**: somewhere between the two.
+- **A temporary radial left out for days or weeks**: it moves from on top toward in the soil as
+  the grass grows through it.
 
 ## Second ground
 
