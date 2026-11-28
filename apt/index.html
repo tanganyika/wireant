@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>wireant APT repository</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="font-family:sans-serif;max-width:46em;margin:2em auto;padding:0 1em">
+<h1>wireant APT repository</h1>
+<p>For Ubuntu 20.04 and later, Debian 11 and later, Linux Mint, Zorin, Pop!_OS (64-bit PC).
+Add it once, and wireant updates with the rest of the system:</p>
+<pre>sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://tanganyika.github.io/wireant/apt/wireant.gpg | sudo tee /etc/apt/keyrings/wireant.gpg &gt;/dev/null
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/wireant.gpg] https://tanganyika.github.io/wireant/apt stable main" | sudo tee /etc/apt/sources.list.d/wireant.list
+sudo apt update
+sudo apt install wireant</pre>
+<p>Packages: wireant_0.12.0_amd64.deb wireant_0.12.1_amd64.deb wireant_0.12.2_amd64.deb </p>
+<p><a href="https://github.com/tanganyika/wireant">wireant on GitHub</a></p>
+</body></html>
