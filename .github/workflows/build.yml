@@ -23,7 +23,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --release
@@ -52,7 +52,7 @@ jobs:
           cp -r install.sh uninstall.sh packaging README.md LICENSE $D/
           tar czf dist/$D.tar.gz $D
           packaging/linux/build-deb.sh $B $VER dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: dist/*
@@ -66,8 +66,8 @@ jobs:
     env:
       ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
@@ -104,7 +104,7 @@ jobs:
           VER=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
           mkdir dist
           cp android/target/release/apk/wireant.apk dist/wireant-$VER-android-arm64.apk
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android
           path: dist/*
@@ -117,7 +117,7 @@ jobs:
       # Visual C++ Redistributable (VCRUNTIME140.dll)
       CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: "-C target-feature=+crt-static"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: MinGW gcc (for NEC-2)
         shell: bash
         run: |
@@ -150,7 +150,7 @@ jobs:
           mkdir $D
           cp target/release/wireant.exe README.md LICENSE $D/
           7z a -tzip dist/$D.zip $D
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: dist/*
@@ -161,7 +161,7 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
@@ -190,7 +190,7 @@ jobs:
           ln -s /Applications dist/Applications
           hdiutil create -volname "wireant" -srcfolder dist -ov -format UDZO wireant-$VER-macos-universal.dmg
           echo "PKG=wireant-$VER-macos-universal.dmg" >> $GITHUB_ENV
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: ${{ env.PKG }}
@@ -202,11 +202,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: packages
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: packages/*
           generate_release_notes: true
@@ -223,8 +223,8 @@ jobs:
       APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: linux
           path: packages
@@ -264,8 +264,8 @@ jobs:
     env:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: packages
           merge-multiple: true
