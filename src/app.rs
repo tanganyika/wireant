@@ -2929,6 +2929,22 @@ fn ground_controls(ui: &mut egui::Ui, ant: &mut Antenna) -> Option<String> {
             ui.label("Ground σ (mS/m)");
             ui.add(crate::num::Num::new(&mut ant.ground.sigma_ms).speed(0.1).range(0.0..=10000.0));
             ui.end_row();
+            ui.label("Wires at height 0");
+            egui::ComboBox::from_id_salt(ui.next_auto_id())
+                .selected_text(ant.ground.surface_wires.label())
+                .show_ui(ui, |ui| {
+                    for s in [SurfaceWires::InSoil, SurfaceWires::OnTop] {
+                        ui.selectable_value(&mut ant.ground.surface_wires, s, s.label());
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "Wires lying on the ground (both ends at height 0), such as radials. In the soil: just under the \
+                     surface, for wire that grass, roots or leaves have grown round, or that is pressed into the soil. \
+                     On top of the soil: in the air, just touching it, for wire newly laid on the ground (a portable \
+                     set-up). A real ground system lies between the two, and the results show both. wiremom engine only.",
+                );
+            ui.end_row();
         }
         if ant.ground.kind != GroundKind::Free {
             ui.label("Slope");

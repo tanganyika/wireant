@@ -325,6 +325,38 @@ pub struct Ground {
     pub downhill_deg: f64,
     /// The terrain's height along bearings, for the patterns (wiremom only).
     pub terrain: TerrainSpec,
+    /// Where wires lying at height 0 on real ground go (wiremom only).
+    pub surface_wires: SurfaceWires,
+}
+
+/// What a wire lying on real ground (height 0) is modelled as.  A real one is
+/// somewhere between the two: its field reaches only a few millimetres, so whether
+/// those millimetres are air or soil decides how lossy it is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SurfaceWires {
+    /// Just under the surface, in the soil: grass, roots and leaves grown round
+    /// it, or a wire pressed into the soil.
+    #[default]
+    InSoil,
+    /// On top of the soil, in the air and just touching it: a wire newly laid
+    /// down (a portable set-up).
+    OnTop,
+}
+
+impl SurfaceWires {
+    pub fn label(&self) -> &'static str {
+        match self {
+            SurfaceWires::InSoil => "in the soil",
+            SurfaceWires::OnTop => "on top of the soil",
+        }
+    }
+    pub fn other(&self) -> SurfaceWires {
+        match self {
+            SurfaceWires::InSoil => SurfaceWires::OnTop,
+            SurfaceWires::OnTop => SurfaceWires::InSoil,
+        }
+    }
 }
 
 /// Terrain around the antenna for the far field, as HFTA: the ground's height
@@ -939,7 +971,7 @@ impl Antenna {
         a.lines.clear();
         a.plates.clear();
         a.comment.clear();
-        a.ground = Ground { kind: GroundKind::Free, eps_r: 13.0, sigma_ms: 5.0, add_height: 0.0, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0, terrain: TerrainSpec::default() };
+        a.ground = Ground { kind: GroundKind::Free, eps_r: 13.0, sigma_ms: 5.0, add_height: 0.0, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0, terrain: TerrainSpec::default(), surface_wires: SurfaceWires::InSoil };
         a.material = Material::CuWire;
         a
     }
@@ -952,7 +984,7 @@ impl Antenna {
     }
 
     fn example_wires(i: usize) -> Antenna {
-        let real = |h: f64| Ground { kind: GroundKind::Real, eps_r: 13.0, sigma_ms: 5.0, add_height: h, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0, terrain: TerrainSpec::default() };
+        let real = |h: f64| Ground { kind: GroundKind::Real, eps_r: 13.0, sigma_ms: 5.0, add_height: h, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0, terrain: TerrainSpec::default(), surface_wires: SurfaceWires::InSoil };
         let base = |name: &str, f: f64| Antenna {
             name: name.to_string(),
             freq_mhz: f,
@@ -961,7 +993,7 @@ impl Antenna {
             loads: vec![],
             lines: vec![],
             plates: vec![],
-            ground: Ground { kind: GroundKind::Free, eps_r: 13.0, sigma_ms: 5.0, add_height: 0.0, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0, terrain: TerrainSpec::default() },
+            ground: Ground { kind: GroundKind::Free, eps_r: 13.0, sigma_ms: 5.0, add_height: 0.0, second: SecondMedium::default(), slope_deg: 0.0, downhill_deg: 0.0, terrain: TerrainSpec::default(), surface_wires: SurfaceWires::InSoil },
             material: Material::CuWire,
             z0: 50.0,
             seg: Segmentation::default(),

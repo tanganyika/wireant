@@ -286,12 +286,18 @@ These are the weaker spots, with how far they have been checked.
     unreliable at a feed junction.)
 - **Wires in the ground:** no other program available here can model them.
   nec2c can't: it gives a meaningless 259 − j232 Ω for a vertical connected to
-  average ground. The engine is checked against exact limits and a classic
-  ground-rod formula (Dwight, within 0.7%), not against measurements or NEC-4.
+  average ground. The engine is checked against exact limits, a classic
+  ground-rod formula (Dwight, within 0.7%) and independent derivations of the
+  wave along wires just above and below the surface (within about 1%) and of the
+  field passing into the soil, not yet against measurements or NEC-4/5.
 - **Wires lying on real ground** (height 0, such as radials laid on the soil) are
-  modelled 1 cm under the surface, in the soil, with the ground's losses. A note
-  in the results says so. Results differ a little from radials just above the
-  ground, as they do in practice.
+  modelled 1 cm under the surface, in the soil, with the ground's losses, or, if
+  you choose (Ground: Wires at height 0), on top of the soil in the air, just
+  touching it. A real radial is somewhere between: newly laid wire is nearer the
+  second, wire that grass has grown round nearer the first. The two can differ a
+  lot (21% against 29% efficiency for a 20 m vertical with 16 radials 5 m long
+  over average ground), so the results give the impedance and efficiency for
+  both.
 - **Wires that only stop on the surface of real ground**, with nothing lying on
   it or below it (no rod or radials), use a perfect-ground stand-in for the
   currents. A point contact into lossy earth can't be modelled. The warning

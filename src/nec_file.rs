@@ -215,6 +215,9 @@ struct Extras {
     /// terrain for the patterns (no NEC card for it)
     #[serde(default)]
     terrain: crate::model::TerrainSpec,
+    /// where wires lying at height 0 on real ground go (wiremom only)
+    #[serde(default)]
+    surface_wires: crate::model::SurfaceWires,
 }
 
 const EXTRAS: &str = "wireant settings ";
@@ -723,6 +726,7 @@ pub fn parse(text: &str, file_name: &str) -> Result<Imported, String> {
         ant.ground.slope_deg = x.slope_deg;
         ant.ground.downhill_deg = x.downhill_deg;
         ant.ground.terrain = x.terrain;
+        ant.ground.surface_wires = x.surface_wires;
         ant.seg = x.seg;
         if x.wire_seg.len() == ant.wires.len() {
             for (w, s) in ant.wires.iter_mut().zip(&x.wire_seg) {
@@ -797,6 +801,7 @@ pub fn write(ant: &Antenna) -> String {
         slope_deg: ant.ground.slope_deg,
         downhill_deg: ant.ground.downhill_deg,
         terrain: ant.ground.terrain.clone(),
+        surface_wires: ant.ground.surface_wires,
     };
     cm(&mut o, &format!("{EXTRAS}{}", serde_json::to_string(&extras).unwrap_or_default()));
     for (i, w) in ant.wires.iter().enumerate().filter(|(_, w)| w.insulated()) {
@@ -1043,6 +1048,7 @@ mod tests {
             a.loads.push(Load { wire: 0, pos: 0.0, kind: LoadKind::Rx { r: 5.0, x: 0.0 } });
             a.sources[0].current = true;
             a.seg.dm1 = 300.0;
+            a.ground.surface_wires = SurfaceWires::OnTop;
             let mut b = parse(&write(&a), "x").unwrap().ant;
             if a.ground.kind != GroundKind::Free {
                 let dz = a.ground.add_height;

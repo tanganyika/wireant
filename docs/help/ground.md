@@ -119,16 +119,26 @@ The View tab draws the profiles as brown lines from the origin.
   into soil can't be calculated well. The program warns about it. Add a ground rod or radials.
 - With the **wiremom** engine, wires can run below Z = 0 over real ground. Ground rods, buried
   radials and counterpoises are modelled in full, including the loss in the soil.
-- Wires lying on the ground at Z = 0 (radials laid on the soil) are modelled 1 cm into the soil.
-  This is close to the real thing for bare or insulated wire lying on the soil. A wire's field
-  reaches only a few wire diameters, so one touching the soil carries much the same wave as a
-  buried one. Checks with an exact model of a wire resting on the surface found radiated shares
-  within a few points of this model. A wire held even 1 cm above the soil behaves quite
-  differently, so expect a big change between Z = 0 and Z = 0.01. Wires rising from Z = 0, such
-  as a vertical, keep their feed point at the surface; a short stub in the soil joins them to the
-  radials.
+- Wires lying on the ground at Z = 0 (radials laid on the soil) are modelled as **Wires at
+  height 0** says:
+  - **in the soil** (the default): 1 cm into the soil. Use this for radials that grass, roots,
+    moss or leaves have grown round, or that are pressed into the soil. Wires rising from Z = 0,
+    such as a vertical, keep their feed point at the surface; a short stub in the soil joins them
+    to the radials.
+  - **on top of the soil**: in the air, just touching it (the wire's axis one outer radius up,
+    wire plus insulation). Use this for wire newly laid on the ground, as in a portable set-up.
+    Wires rising from Z = 0 start at the same height, where they meet the radials.
+- A wire's field reaches only a few millimetres, so whether those millimetres are air or soil
+  decides how lossy a radial is. The two placements can differ a lot: for a 20 m vertical with 16
+  insulated radials 5 m long over average ground, 52 Ω and 21% efficiency in the soil, 40 Ω and
+  29% on top. Within each placement the exact height hardly matters: from 5 cm up down to
+  touching the soil gives much the same, and so does anything from just under the surface to 5 cm
+  down. A real ground system lies between the two placements, so the results give the feed
+  impedance and efficiency for both (one more solve, on Calculate only, not in sweeps or the
+  optimizer).
 - Keep other wires at least three wire radii away from the surface, above or below. Closer than
-  that, no thin-wire engine (NEC included) is reliable, and the program warns about it.
+  that, the soil or the wire's image is about as close as the wire is thick, which thin-wire
+  engines can only approximate, and the program warns about it.
 - The **External NEC** engine (NEC-4 or later) also takes wires below Z = 0 over real ground. A
   wire that goes through the surface gets a segment end at Z = 0, as NEC needs. Wires lying in
   the surface at Z = 0 can't go to NEC: put them a little into the soil and join them with a short

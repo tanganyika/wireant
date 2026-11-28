@@ -23,7 +23,17 @@ static TABLES: LazyLock<wiremom::TableCache> = LazyLock::new(Default::default);
 /// ground (rods, buried radials) are modelled in full instead.
 pub const GROUND_CONNECTED_NOTE: &str = "Wires connect to the real ground: impedance and currents are calculated over perfect ground (as for a good radial system); the pattern includes the real ground's reflection. Ground losses at the connection are not included. To model the ground system itself, add ground rods or buried radials (wires below z = 0).";
 
-pub const SURFACE_WIRES_NOTE: &str = "Wires lying on the ground (height 0) are modelled just under the surface, in the soil, with the real ground's losses. Wires rising from height 0 keep their feed point at the surface, joined to them by a short stub in the soil.";
+pub const SURFACE_WIRES_NOTE: &str = "Wires lying on the ground (height 0) are modelled just under the surface, in the soil, with the real ground's losses (Ground: Wires at height 0, in the soil). Wires rising from height 0 keep their feed point at the surface, joined to them by a short stub in the soil.";
+
+pub const SURFACE_WIRES_ON_TOP_NOTE: &str = "Wires lying on the ground (height 0) are modelled on top of the soil, in the air and just touching it (Ground: Wires at height 0, on top of the soil). Wires rising from height 0 start at the same height, where they meet them.";
+
+/// The note for how wires lying on the ground are modelled.
+pub fn surface_note(place: SurfaceWires) -> &'static str {
+    match place {
+        SurfaceWires::InSoil => SURFACE_WIRES_NOTE,
+        SurfaceWires::OnTop => SURFACE_WIRES_ON_TOP_NOTE,
+    }
+}
 
 fn usable(w: &Wire) -> bool {
     w.length() > 0.0 && w.r != 0.0
@@ -50,9 +60,22 @@ pub fn surface_depth(ant: &Antenna) -> f64 {
     (5.0 * r).max(0.01)
 }
 
-/// Thin-wire engines (all of them, NEC included) aren't reliable for a wire within
-/// this many outer radii of real ground's surface: the image or the soil is then
-/// closer than the wire is thick, and the results jump about with tiny changes.
+/// How high above the surface wires lying on the ground are put when they are on
+/// top of the soil (`SurfaceWires::OnTop`): just touching it, the axis one outer
+/// radius (wire plus insulation) up, but at least two wire radii (where wiremom's
+/// thin-wire kernel was checked against an exact guided-wave reference).
+pub fn surface_height(ant: &Antenna) -> f64 {
+    let h = |p| ant.ground.height(p);
+    ant.wires
+        .iter()
+        .filter(|w| usable(w) && h(w.p1).abs() < 1e-6 && h(w.p2).abs() < 1e-6)
+        .map(|w| (w.r.abs() + if w.insulated() { w.ins_t } else { 0.0 }).max(2.0 * w.r.abs()))
+        .fold(0.0, f64::max)
+}
+
+/// Thin-wire engines aren't reliable for a wire within this many outer radii of
+/// real ground's surface: the image or the soil is then about as close as the wire
+/// is thick.
 pub const NEAR_SURFACE_RADII: f64 = 3.0;
 
 /// App wires that come within [`NEAR_SURFACE_RADII`] outer radii (wire plus
@@ -88,7 +111,7 @@ pub fn near_surface_note(near: &[(usize, f64)], ant: &Antenna) -> String {
         NEAR_SURFACE_RADII * (w.r.abs() + if w.insulated() { w.ins_t } else { 0.0 })
     }).fold(0.0, f64::max);
     format!(
-        "Wire{} {} {} within {} wire radii of the ground surface (closest {:.1} mm). No thin-wire engine, NEC included, is reliable this close to the ground: the results can change a lot with tiny changes of height. For wires lying on the ground use height 0; otherwise keep them at least {:.0} mm clear of the surface.",
+        "Wire{} {} {} within {} wire radii of the ground surface (closest {:.1} mm). There the soil, or the wire's image in it, is about as close as the wire is thick, which thin-wire engines can only approximate (wiremom is checked down to about two radii; other engines may be less accurate). Results also differ a lot between just above and just below the surface. For wires lying on the ground use height 0 and choose under Ground whether they are in the soil or on top of it; otherwise keep them at least {:.0} mm clear of the surface.",
         if near.len() > 1 { "s" } else { "" },
         names.join(", "),
         if near.len() > 1 { "are" } else { "is" },
@@ -113,6 +136,11 @@ pub fn uses_ground_stand_in(ant: &Antenna) -> bool {
 /// The wiremom model of `ant`, segmented for wavelength `lambda`, with loads
 /// evaluated at `freq_mhz`; also the app wire index of each wiremom wire.
 pub fn build(ant: &Antenna, lambda: f64, freq_mhz: f64) -> Result<(Model, Vec<usize>), String> {
+    build_placed(ant, lambda, freq_mhz, ant.ground.surface_wires)
+}
+
+/// [`build`] with wires lying on the ground placed as `place` says.
+pub fn build_placed(ant: &Antenna, lambda: f64, freq_mhz: f64, place: SurfaceWires) -> Result<(Model, Vec<usize>), String> {
     let grounded = ant.ground.kind != GroundKind::Free;
     let dz = if grounded { ant.ground.add_height } else { 0.0 };
     let conductor = match ant.material.conduction(ant.user_rho, ant.user_mu) {
@@ -128,8 +156,12 @@ pub fn build(ant: &Antenna, lambda: f64, freq_mhz: f64) -> Result<(Model, Vec<us
     // rising from the surface keep their end, and any feed there, in the air, and a
     // short stub straight down joins them to the wires in the soil (a feed put in the
     // soil would be shorted by it: in sea water nearly all the power went into the
-    // water around the feed)
-    let sink = if lies_on_ground(ant) { surface_depth(ant) } else { 0.0 };
+    // water around the feed).  On top of the soil (SURFACE_WIRES_ON_TOP_NOTE) they
+    // are lifted to just touch it instead, and so is every other wire end at the
+    // surface, so a vertical rising from there still meets them.
+    let on_ground = lies_on_ground(ant);
+    let sink = if on_ground && place == SurfaceWires::InSoil { surface_depth(ant) } else { 0.0 };
+    let lift = if on_ground && place == SurfaceWires::OnTop { surface_height(ant) } else { 0.0 };
     let at_surface = |v: f64| v.abs() < 1e-6;
     let mut stubs: Vec<([f64; 3], f64)> = vec![];
     // over sloping ground the wires are laid out in the ground frame (the surface at
@@ -143,7 +175,7 @@ pub fn build(ant: &Antenna, lambda: f64, freq_mhz: f64) -> Result<(Model, Vec<us
         let (q1, q2) = (local(w.p1), local(w.p2));
         let (z1, z2) = (q1[2], q2[2]);
         let lying = sink > 0.0 && at_surface(z1) && at_surface(z2);
-        let z = |v: f64| if lying { -sink } else { v };
+        let z = |v: f64| if lying { -sink } else if lift > 0.0 && at_surface(v) { lift } else { v };
         let p1 = [q1[0], q1[1], z(z1)];
         let p2 = [q2[0], q2[1], z(z2)];
         if sink > 0.0 && !lying && usable(w) {
@@ -360,7 +392,9 @@ pub fn calculate(ant: &Antenna, prog: &crate::progress::Progress) -> Result<Full
         warnings.push(GROUND_CONNECTED_NOTE.to_string());
     }
     if lies_on_ground(ant) {
-        warnings.push(SURFACE_WIRES_NOTE.to_string());
+        let place = ant.ground.surface_wires;
+        warnings.push(surface_note(place).to_string());
+        warnings.push(surface_bracket(ant, &ws, place));
     }
     let mesh = view_mesh(ant, &ws, &app_wire);
     let seg_currents = ws.segment_currents().into_iter().map(|(a, b, i)| (a, b, i.norm())).collect();
@@ -376,6 +410,26 @@ pub fn calculate(ant: &Antenna, prog: &crate::progress::Progress) -> Result<Full
     res.eff = power.radiated;
     let near = crate::nearfield::Currents { filaments: near_filaments(&ws), p_in: ws.input_power(), plates_left_out: !ant.plates.is_empty() };
     Ok(FullResult { result: res, patterns, mesh, currents: vec![], warnings, seg_currents: Some(seg_currents), power, near })
+}
+
+/// Wires lying on the ground: the feed impedance and efficiency with them in the
+/// soil and on top of it, from one more solve with the other placement.  A real
+/// ground system lies between the two.  Both efficiencies come from wiremom's own
+/// power integral, so they compare like with like.
+fn surface_bracket(ant: &Antenna, ws: &wiremom::Solution, place: SurfaceWires) -> String {
+    let fmt = |z: C, e: f64| format!("{:.1} {} j{:.1} Ω, efficiency {:.1}%", z.re, if z.im < 0.0 { "−" } else { "+" }, z.im.abs(), 100.0 * e);
+    let this = fmt(ws.input_impedance(), ws.efficiency());
+    let other = build_placed(ant, ant.lambda(), ant.freq_mhz, place.other())
+        .and_then(|(m, _)| m.solve(ant.freq_mhz * 1e6).map_err(String::from))
+        .map(|s| fmt(s.input_impedance(), s.efficiency()));
+    let (soil, top) = match (place, other) {
+        (_, Err(e)) => return format!("Wires at height 0, {}: {this}. The other placement couldn't be calculated: {e}", place.label()),
+        (SurfaceWires::InSoil, Ok(o)) => (this, o),
+        (SurfaceWires::OnTop, Ok(o)) => (o, this),
+    };
+    format!(
+        "Wires at height 0, in the soil: {soil}; on top of the soil: {top}. A real ground system lies in between: wire newly laid on the ground is nearer the second, wire that grass, roots or leaves have grown round is nearer the first."
+    )
 }
 
 /// The segment layout for the 3D view, from wiremom's mesh, one entry per app wire.
@@ -562,6 +616,61 @@ mod tests {
         assert_eq!(p, vec![[0.0, 0.0], [250.0, 10.0], [500.0, 5.0], [1000.0, -60.0]]);
         let f = TerrainProfile::parse_points("0 0\n1000 100\n", true);
         assert!((f[1][0] - 304.8).abs() < 1e-9 && (f[1][1] - 30.48).abs() < 1e-9);
+    }
+
+    /// A 20 m quarter-wave vertical with 16 insulated radials 5 m long lying on
+    /// average ground.
+    fn vertical_with_surface_radials() -> Antenna {
+        let mut a = Antenna::blank();
+        a.engine = Engine::Wiremom;
+        a.freq_mhz = 14.15;
+        a.ground.kind = GroundKind::Real;
+        a.ground.eps_r = 13.0;
+        a.ground.sigma_ms = 5.0;
+        a.wires = vec![Wire::new([0.0, 0.0, 0.0], [0.0, 0.0, 5.1], 0.005)];
+        for i in 0..16 {
+            let t = i as f64 * std::f64::consts::PI / 8.0;
+            let mut w = Wire::new([0.0, 0.0, 0.0], [5.0 * t.cos(), 5.0 * t.sin(), 0.0], 0.0005);
+            w.ins_t = 0.00075;
+            w.ins_eps = 3.0;
+            a.wires.push(w);
+        }
+        a.sources = vec![Source { wire: 0, pos: 0.0, ..Default::default() }];
+        a
+    }
+
+    #[test]
+    fn surface_wires_in_the_soil_or_on_top() {
+        let mut a = vertical_with_surface_radials();
+        assert_eq!(a.ground.surface_wires, SurfaceWires::InSoil);
+        // placement: radials in the soil (1 cm or 5 radii of the thickest wire there) with a stub to the vertical, or touching the
+        // soil from above (one outer radius up) with the vertical's foot there too
+        let z_of = |a: &Antenna, p| build_placed(a, a.lambda(), a.freq_mhz, p).unwrap().0.wires.iter().map(|w| w.start[2].min(w.end[2])).collect::<Vec<_>>();
+        let soil = z_of(&a, SurfaceWires::InSoil);
+        assert!(soil[1..17].iter().all(|z| (z + surface_depth(&a)).abs() < 1e-9) && soil.len() == 18, "{soil:?}");
+        let top = z_of(&a, SurfaceWires::OnTop);
+        assert!(top.iter().all(|z| (z - 0.00125).abs() < 1e-9) && top.len() == 17, "{top:?}");
+        // both placements in the results, whichever is chosen; on top is less lossy
+        let eff = |s: &str, which: &str| -> f64 {
+            let i = s.find(which).unwrap();
+            let t = &s[i..];
+            let j = t.find("efficiency ").unwrap() + 11;
+            t[j..].split('%').next().unwrap().parse().unwrap()
+        };
+        let r = mom::calculate(&a).unwrap();
+        assert!(r.warnings.iter().any(|w| w == SURFACE_WIRES_NOTE));
+        let line = r.warnings.iter().find(|w| w.starts_with("Wires at height 0, in the soil:")).unwrap().clone();
+        let (e_soil, e_top) = (eff(&line, "in the soil:"), eff(&line, "on top of the soil:"));
+        println!("{line}");
+        assert!(e_top > e_soil + 3.0 && e_soil > 15.0 && e_top < 40.0, "{line}");
+        // the main result follows the setting, and the line stays the same
+        assert!((r.power.radiated * 100.0 - e_soil).abs() < 1.5, "{} vs {e_soil}", r.power.radiated);
+        a.ground.surface_wires = SurfaceWires::OnTop;
+        let r2 = mom::calculate(&a).unwrap();
+        assert!(r2.warnings.iter().any(|w| w == SURFACE_WIRES_ON_TOP_NOTE));
+        assert!(r2.warnings.iter().any(|w| *w == line), "{:?}", r2.warnings);
+        assert!((r2.power.radiated * 100.0 - e_top).abs() < 1.5, "{} vs {e_top}", r2.power.radiated);
+        assert!(near_surface(&a).is_empty());
     }
 
     #[test]
